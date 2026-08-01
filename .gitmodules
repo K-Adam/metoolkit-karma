@@ -1,0 +1,4 @@
+[submodule "reference/metoolkit-karma-v1.2"]
+	path = reference/metoolkit-karma-v1.2
+	url = https://github.com/sigmaco/metoolkit-karma-v1.2
+	shallow = true
