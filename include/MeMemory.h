@@ -61,13 +61,13 @@
 
 
 #define MeMemoryQUADALIGNED(n) \
-    (MEASSERT((((long unsigned) (n)) % 16) == 0))
+    (MEASSERT((((MeUintPtr) (n)) % 16) == 0))
 
 #define MeMemoryQUADALIGN(a) \
-    ((void *) ((((long unsigned) (void *) (a)) + 15) &~ 15))
+    ((void *) ((((MeUintPtr) (void *) (a)) + 15) &~ 15))
 
 #define MeMemory64ALIGN(a) \
-    ((void *) ((((long unsigned) (void *) (a)) + 63) &~ 63))
+    ((void *) ((((MeUintPtr) (void *) (a)) + 63) &~ 63))
 
 #ifdef MeMemoryALLOCA
 # define MeMemoryQUADALIGNEDALLOCA(name, type, n) \

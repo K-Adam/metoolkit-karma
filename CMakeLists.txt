@@ -4,6 +4,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed. Use: cmake -B build")
 endif()
 
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT})
+    set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "")
+endif()
+
 project(karma
     VERSION 1.2
     DESCRIPTION "Re-implementation of the MathEngine Karma 1.2 physics engine API"
@@ -17,6 +21,35 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+find_package(Bullet CONFIG REQUIRED)
+
+add_library(karma_api INTERFACE)
+target_include_directories(karma_api INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+# The headers select MeReal and MEAPI from these platform macros, not from the compiler ones.
+if(WIN32)
+    target_compile_definitions(karma_api INTERFACE WIN32)
+else()
+    target_compile_definitions(karma_api INTERFACE LINUX)
+endif()
+
 add_library(karma INTERFACE)
 add_library(karma::karma ALIAS karma)
-target_include_directories(karma INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+
+function(karma_add_library name)
+    cmake_parse_arguments(ARG "" "" "DEPS" ${ARGN})
+    file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/${name}/*.cpp)
+    add_library(${name} STATIC ${sources})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal ${BULLET_INCLUDE_DIRS})
+    target_link_libraries(${name} PUBLIC karma_api ${ARG_DEPS} PRIVATE ${BULLET_LIBRARIES})
+    target_link_libraries(karma INTERFACE ${name})
+endfunction()
+
+karma_add_library(MeGlobals)
+karma_add_library(McdFrame DEPS MeGlobals)
+karma_add_library(McdCommon DEPS McdFrame)
+karma_add_library(McdPrimitives DEPS McdFrame)
+karma_add_library(Mdt DEPS MeGlobals)
+karma_add_library(Mst DEPS McdCommon McdPrimitives Mdt)
+
+enable_testing()
+add_subdirectory(tests)

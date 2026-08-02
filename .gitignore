@@ -4,3 +4,6 @@ out/
 .vscode/
 CMakeUserPresets.json
 compile_commands.json
+build-ref/
+__pycache__/
+*.pyc

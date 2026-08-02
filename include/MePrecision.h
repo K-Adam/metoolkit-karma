@@ -136,7 +136,8 @@ typedef int                     MeBool;
 #   define MeUintPtr            ptrdiff_t
 
 #elif defined WIN32
-#   define MeUintPtr            MeU32
+#   include <stdint.h>
+#   define MeUintPtr            uintptr_t
 
 #elif defined LINUX
 #   include <stdint.h>

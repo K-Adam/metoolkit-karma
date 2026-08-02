@@ -1,0 +1,8 @@
+file(GLOB tests CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.c ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+foreach(src ${tests})
+    get_filename_component(test ${src} NAME_WE)
+    add_executable(${test} ${src})
+    target_link_libraries(${test} PRIVATE karma)
+    add_test(NAME ${test} COMMAND ${test})
+endforeach()
+add_subdirectory(difftest)

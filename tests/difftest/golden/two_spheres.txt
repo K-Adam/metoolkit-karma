@@ -1,0 +1,19 @@
+= x 6.00 hello 0 staying 0 goodbye 0
+= x 4.00 hello 0 staying 0 goodbye 0
+= x 1.90 hello 1 staying 0 goodbye 0
+=   touch 1 contacts 1
+~0.0001   normal -1.00000 0.00000 0.00000 separation -0.10000
+= x 1.50 hello 0 staying 1 goodbye 0
+=   touch 1 contacts 1
+~0.0001   normal -1.00000 0.00000 0.00000 separation -0.50000
+= x 1.20 hello 0 staying 1 goodbye 0
+=   touch 1 contacts 1
+~0.0001   normal -1.00000 0.00000 0.00000 separation -0.80000
+= x 1.50 hello 0 staying 1 goodbye 0
+=   touch 1 contacts 1
+~0.0001   normal -1.00000 0.00000 0.00000 separation -0.50000
+= x 1.90 hello 0 staying 1 goodbye 0
+=   touch 1 contacts 1
+~0.0001   normal -1.00000 0.00000 0.00000 separation -0.10000
+= x 4.00 hello 0 staying 0 goodbye 1
+= x 6.00 hello 0 staying 0 goodbye 0

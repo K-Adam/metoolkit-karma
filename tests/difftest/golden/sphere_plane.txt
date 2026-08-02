@@ -1,0 +1,4 @@
+~0.0001 mass 0.52360
+~1 first touch step 55
+~0.005 rest z 0.4997
+= rest x 0.0000 y 0.0000
