@@ -3,6 +3,13 @@
 #include <cstdlib>
 #include <cstring>
 
+#if defined(WIN32) && defined(_MSC_VER)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <crtdbg.h>
+#endif
+
 #include <MeMessage.h>
 
 extern "C" {
@@ -24,6 +31,33 @@ void MEAPI MeShowStderr(const int, const char* const string)
     std::fputs(string, stderr);
     std::fputc('\n', stderr);
 }
+
+#if defined(WIN32) && defined(_MSC_VER)
+void MEAPI MeShowDialog(const int, const char* const string)
+{
+    MessageBoxA(nullptr, string, "MathEngine", MB_OK | MB_ICONINFORMATION);
+}
+
+// The CRT debug report only exists in debug builds, so release builds go to the debugger output.
+void MEAPI MeShowCrtWarn(const int, const char* const string)
+{
+#ifdef _DEBUG
+    _CrtDbgReport(_CRT_WARN, nullptr, 0, nullptr, "%s\n", string);
+#else
+    OutputDebugStringA(string);
+    OutputDebugStringA("\n");
+#endif
+}
+
+void MEAPI MeShowCrtErr(const int, const char* const string)
+{
+#ifdef _DEBUG
+    _CrtDbgReport(_CRT_ERROR, nullptr, 0, nullptr, "%s\n", string);
+#else
+    MessageBoxA(nullptr, string, "MathEngine", MB_OK | MB_ICONERROR);
+#endif
+}
+#endif
 
 MeShow MeInfoShow = MeShowStdout;
 MeShow MeLogShow = MeShowStdout;

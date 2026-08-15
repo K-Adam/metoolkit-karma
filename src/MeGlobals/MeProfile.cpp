@@ -1,0 +1,137 @@
+#include <chrono>
+#include <cstdio>
+#include <map>
+#include <string>
+
+#include <MeProfile.h>
+
+namespace {
+
+using Clock = std::chrono::steady_clock;
+
+struct Section
+{
+    Clock::time_point start;
+    Clock::duration frame{};
+    Clock::duration total{};
+    bool running = false;
+    bool autoStop = false;
+};
+
+// ponytail: one global profiler that keeps last frame and running totals per section. Per frame logs (kMeProfileLogAll) need a history here.
+struct Profiler
+{
+    bool enabled = false;
+    int frames = 0;
+    std::map<std::string, Section> sections;
+};
+
+Profiler profiler;
+
+double ms(Clock::duration d)
+{
+    return std::chrono::duration<double, std::milli>(d).count();
+}
+
+void stop(Section& s)
+{
+    if (!s.running)
+        return;
+    s.frame += Clock::now() - s.start;
+    s.running = false;
+}
+
+} // namespace
+
+extern "C" {
+
+void MEAPI MeProfileStartTiming(MeProfileTimerMode, MeProfileLogModes_enum)
+{
+    profiler = Profiler{};
+    profiler.enabled = true;
+}
+
+void MEAPI MeProfileStopTiming()
+{
+    profiler = Profiler{};
+}
+
+void MEAPI MeProfileStartFrame()
+{
+    for (auto& [name, s] : profiler.sections)
+        s.frame = {};
+}
+
+void MEAPI MeProfileEndFrame()
+{
+    if (!profiler.enabled)
+        return;
+    MeProfileStopTimers();
+    for (auto& [name, s] : profiler.sections)
+        s.total += s.frame;
+    ++profiler.frames;
+}
+
+void MEAPI MeProfileStartSectionFn(const char* codeSection, char unsigned autoStop)
+{
+    if (!profiler.enabled)
+        return;
+    for (auto& [name, s] : profiler.sections)
+        if (s.autoStop)
+            stop(s);
+    Section& s = profiler.sections[codeSection];
+    stop(s);
+    s.start = Clock::now();
+    s.running = true;
+    s.autoStop = autoStop != 0;
+}
+
+void MEAPI MeProfileEndSectionFn(const char* codeSection)
+{
+    auto it = profiler.sections.find(codeSection);
+    if (it != profiler.sections.end())
+        stop(it->second);
+}
+
+void MEAPI MeProfileGetTimerValue(MeProfileTimerResult* const result)
+{
+    result->cpuCycles = static_cast<MeU64>(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
+    result->count0 = 0;
+    result->count1 = 0;
+}
+
+void MEAPI MeProfileStopTimers()
+{
+    for (auto& [name, s] : profiler.sections)
+        stop(s);
+}
+
+void MEAPI MeProfileOutputResults()
+{
+    int frames = profiler.frames > 0 ? profiler.frames : 1;
+    std::printf("%-32s %12s %12s\n", "section", "last ms", "average ms");
+    for (auto& [name, s] : profiler.sections)
+        std::printf("%-32s %12.3f %12.3f\n", name.c_str(), ms(s.frame), ms(s.total) / frames);
+}
+
+MeReal MEAPI MeProfileGetSectionTime(const char* codeSection)
+{
+    auto it = profiler.sections.find(codeSection);
+    return it == profiler.sections.end() ? 0 : static_cast<MeReal>(ms(it->second.frame));
+}
+
+MeReal MEAPI MeProfileGetAllSectionTime()
+{
+    double sum = 0;
+    for (auto& [name, s] : profiler.sections)
+        sum += ms(s.frame);
+    return static_cast<MeReal>(sum);
+}
+
+MeU64 MEAPI MeProfileGetClockSpeed()
+{
+    // MeProfileGetTimerValue counts nanoseconds.
+    return 1000000000u;
+}
+
+} // extern "C"
