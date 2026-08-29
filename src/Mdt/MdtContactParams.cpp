@@ -16,6 +16,8 @@ void MEAPI MdtContactParamsReset(const MdtContactParamsID p)
     *p = MdtBclContactParams{};
     p->type = MdtContactTypeFrictionZero;
     p->model1 = p->model2 = MdtFrictionModelBox;
+    p->velThreshold = (MeReal)0.001;
+    p->friction1 = p->friction2 = MEINFINITY;
 }
 
 MdtContactType MEAPI MdtContactParamsGetType(const MdtContactParamsID p) { return p->type; }
@@ -67,6 +69,36 @@ void MEAPI MdtContactParamsSetPrimaryFriction(const MdtContactParamsID p, MeReal
 void MEAPI MdtContactParamsSetPrimaryFrictionCoeffecient(const MdtContactParamsID p, MeReal f) { p->frictioncoeff1 = f; }
 void MEAPI MdtContactParamsSetSecondaryFriction(const MdtContactParamsID p, MeReal f) { p->friction2 = f; }
 void MEAPI MdtContactParamsSetSecondaryFrictionCoeffecient(const MdtContactParamsID p, MeReal f) { p->frictioncoeff2 = f; }
+
+void MEAPI MdtContactParamsSetPrimarySlip(const MdtContactParamsID p, MeReal s)
+{
+    p->slip1 = s;
+    setOption(p, MdtBclContactOptionSlip1, s != 0);
+}
+
+void MEAPI MdtContactParamsSetSecondarySlip(const MdtContactParamsID p, MeReal s)
+{
+    p->slip2 = s;
+    setOption(p, MdtBclContactOptionSlip2, s != 0);
+}
+
+void MEAPI MdtContactParamsSetSlip(const MdtContactParamsID p, MeReal s)
+{
+    MdtContactParamsSetPrimarySlip(p, s);
+    MdtContactParamsSetSecondarySlip(p, s);
+}
+
+void MEAPI MdtContactParamsSetPrimarySlide(const MdtContactParamsID p, MeReal s)
+{
+    p->slide1 = s;
+    setOption(p, MdtBclContactOptionSlide1, s != 0);
+}
+
+void MEAPI MdtContactParamsSetSecondarySlide(const MdtContactParamsID p, MeReal s)
+{
+    p->slide2 = s;
+    setOption(p, MdtBclContactOptionSlide2, s != 0);
+}
 
 void MEAPI MdtContactParamsSetFriction(const MdtContactParamsID p, MeReal f)
 {

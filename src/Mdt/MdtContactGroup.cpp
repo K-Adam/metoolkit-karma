@@ -32,6 +32,8 @@ void prepareGroup(MdtWorldImpl& w, MdtConstraintID c)
         k->head.mdtbody[1] = g->head.mdtbody[1];
         mdtContactPrepare(w, k);
     }
+    // Box friction reads last step's value while preparing, then MdtWorldStep accumulates this step's.
+    g->normalForce = 0;
 }
 
 const MdtConstraintOps kGroupOps = {destroyGroup, prepareGroup};
@@ -87,7 +89,9 @@ MdtContactID MEAPI MdtContactGroupCreateContact(MdtContactGroupID g)
     mdtRegisterConstraintOps(MdtBclCONTACT, &mdtContactOps);
     c->head.world = g->head.world;
     c->head.tag = MdtBclCONTACT;
-    MdtContactParamsReset(&c->params);
+    c->head.mdtbody[0] = g->head.mdtbody[0];
+    c->head.mdtbody[1] = g->head.mdtbody[1];
+    MdtContactReset(c);
     MdtContactGroupAppendContact(g, c);
     return c;
 }
@@ -134,6 +138,11 @@ MeBool MEAPI MdtContactGroupIsSwapped(MdtContactGroupID g)
 int MEAPI MdtContactGroupGetCount(MdtContactGroupID g)
 {
     return g->count;
+}
+
+MeReal MEAPI MdtContactGroupGetNormalForce(MdtContactGroupID g)
+{
+    return g->normalForce;
 }
 
 void MEAPI MdtContactGroupSetGenerator(MdtContactGroupID g, void* generator)

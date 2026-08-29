@@ -3,6 +3,7 @@
 #include <BulletCollision/CollisionDispatch/btSimulationIslandManager.h>
 #include <btBulletDynamicsCommon.h>
 
+#include <memory>
 #include <unordered_set>
 #include <vector>
 
@@ -51,6 +52,8 @@ struct MdtWorldImpl
     std::vector<MdtConstraintID> constraints;
     std::unordered_set<MdtConstraintID> enabled;
     std::vector<btPersistentManifold*> stepManifolds;
+    // Contact friction rows, added to the Bullet world for one step like stepManifolds.
+    std::vector<std::unique_ptr<btTypedConstraint>> stepConstraints;
 };
 
 inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>(w); }
@@ -60,3 +63,5 @@ btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b);
 
 void mdtContactPrepare(MdtWorldImpl& w, MdtContactID c);
 extern const MdtConstraintOps mdtContactOps;
+
+void mdtBodyUpdateCom(MdtBody& b);

@@ -19,3 +19,17 @@ static int __cdecl s_vsnprintf(char *d, size_t n, const char *fmt, va_list a) { 
 static int __cdecl s_sscanf(const char *s, const char *fmt, ...) { int r; va_list a; va_start(a, fmt); r = vsscanf(s, fmt, a); va_end(a); return r; }
 void *_imp__fputs = s_fputs, *_imp__fwrite = s_fwrite, *_imp__fprintf = s_fprintf, *_imp__printf = s_printf,
      *_imp__sprintf = s_sprintf, *_imp___snprintf = s_snprintf, *_imp___vsnprintf = s_vsnprintf, *_imp__sscanf = s_sscanf;
+
+/* The reference libs report messages in modal dialogs, which block unattended runs. */
+#include <MeMessage.h>
+static int __cdecl quiet_messages(void)
+{
+    MeSetFatalErrorShow(MeShowStderr);
+    MeSetWarningShow(MeShowStderr);
+    MeSetInfoShow(MeShowStderr);
+    MeSetLogShow(MeShowStderr);
+    MeSetDebugShow(MeShowStderr);
+    return 0;
+}
+#pragma section(".CRT$XIU", read)
+__declspec(allocate(".CRT$XIU")) int(__cdecl *quiet_messages_init)(void) = quiet_messages;
