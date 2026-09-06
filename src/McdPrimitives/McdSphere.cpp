@@ -23,7 +23,7 @@ MeI16 MEAPI McdSphereGetMassProperties(McdGeometryID g, MeMatrix4 relTM, MeMatri
 {
     MeReal r = P::get(g)->pub.mRadius;
     MeReal i = (MeReal)0.4 * r * r;
-    setDiagonalInertia(relTM, inertia, i, i, i);
+    mcdSetDiagonalInertia(relTM, inertia, i, i, i);
     *volume = (MeReal)(4.0 / 3.0 * ME_PI) * r * r * r;
     return 1;
 }

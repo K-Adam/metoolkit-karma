@@ -37,13 +37,7 @@ void MEAPI MstUniverseDestroy(const MstUniverseID u)
     // The world goes first: destroying its contact groups clears the pairs that still point at them.
     MdtWorldDestroy(u->world);
     McdSpaceDestroy(u->space);
-    while (McdModelID m = u->frame->firstModel)
-        McdModelDestroy(m);
-    while (McdGeometryID g = u->frame->firstGeometry)
-    {
-        McdGeometrySetReferenceCount(g, 0);
-        McdGeometryDestroy(g);
-    }
+    McdFrameworkDestroyAllModelsAndGeometries(u->frame);
     McdTerm(u->frame);
     MstBridgeDestroy(u->bridge);
     delete u;

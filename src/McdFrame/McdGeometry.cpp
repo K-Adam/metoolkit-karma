@@ -1,16 +1,5 @@
 #include "McdImpl.h"
 
-namespace {
-
-const McdGeometryVTable* vtable(McdGeometryID g)
-{
-    McdFrameworkID f = g->frame;
-    int type = McdGeometryGetTypeId(g);
-    return McdFrameworkTypeIsRegistered(f, type) ? &f->geometryVTableTable[type] : nullptr;
-}
-
-} // namespace
-
 extern "C" {
 
 void MEAPI McdGeometryInit(McdGeometryID g, McdFramework* frame, MeI16 typeId)
@@ -39,7 +28,7 @@ void MEAPI McdGeometryDeinit(McdGeometryID g)
 
 MeBool MEAPI McdGeometryIsValid(McdGeometryID g)
 {
-    return g && g->frame && vtable(g) != nullptr;
+    return g && g->frame && mcdVTable(g) != nullptr;
 }
 
 const char* MEAPI McdGeometryGetTypeName(McdGeometryID g)
@@ -56,14 +45,14 @@ void MEAPI McdGeometryDestroy(McdGeometryID g)
         MeWarning(0, "McdGeometryDestroy: geometry is still used by %d model(s)", McdGeometryGetReferenceCount(g));
         return;
     }
-    const McdGeometryVTable* v = vtable(g);
+    const McdGeometryVTable* v = mcdVTable(g);
     if (v && v->destroy)
         v->destroy(g);
 }
 
 void MEAPI McdGeometryGetBSphere(McdGeometryID g, MeVector3 center, MeReal* radius)
 {
-    const McdGeometryVTable* v = vtable(g);
+    const McdGeometryVTable* v = mcdVTable(g);
     if (v && v->getBSphere)
         v->getBSphere(g, center, radius);
 }
@@ -71,8 +60,41 @@ void MEAPI McdGeometryGetBSphere(McdGeometryID g, MeVector3 center, MeReal* radi
 MeI16 MEAPI McdGeometryGetMassProperties(McdGeometryID g, MeMatrix4 relativeTransform, MeMatrix3 inertiaMatrix,
                                          MeReal* volume)
 {
-    const McdGeometryVTable* v = vtable(g);
+    const McdGeometryVTable* v = mcdVTable(g);
     return v && v->getMassProperties ? v->getMassProperties(g, relativeTransform, inertiaMatrix, volume) : 0;
+}
+
+McdLineSegIntersectFnPtr MEAPI McdGeometryGetLineSegIntersectFnPtr(McdGeometryID g)
+{
+    const McdGeometryVTable* v = mcdVTable(g);
+    return v ? v->lineSegIntersect : nullptr;
+}
+
+void MEAPI McdGeometryGetAABB(McdGeometryID g, MeMatrix4 tm, MeVector3 minCorner, MeVector3 maxCorner)
+{
+    McdGeometryInstance ins{};
+    ins.mGeometry = g;
+    ins.mTM = tm;
+    McdGeometryInstanceUpdateAABB(&ins, tm, 1);
+    McdGeometryInstanceGetAABB(&ins, minCorner, maxCorner);
+    mcdFreeChildInstances(&ins);
+}
+
+void MEAPI McdGeometryMaximumPoint(McdGeometryID g, MeMatrix4 tm, MeReal* const inDir, MeReal* const outPoint)
+{
+    McdGeometryInstance ins{};
+    ins.mGeometry = g;
+    ins.mTM = tm;
+    McdGeometryInstanceUpdateAABB(&ins, tm, 1);
+    McdGeometryInstanceMaximumPoint(&ins, inDir, outPoint);
+    mcdFreeChildInstances(&ins);
+}
+
+void MEAPI McdGeometryDebugDraw(const McdGeometryID geom, const MeMatrix4Ptr tm, const MeReal colour[3])
+{
+    const McdGeometryVTable* v = mcdVTable(geom);
+    if (v && v->debugDraw)
+        v->debugDraw(geom, tm, colour);
 }
 
 McdFrameworkID MEAPI McdGeometryGetFramework(McdGeometryID g)
@@ -107,5 +129,6 @@ btCollisionShape* mcdGeometryShape(McdGeometryID g)
 {
     McdFrameworkImpl* f = impl(g->frame);
     int type = McdGeometryGetTypeId(g);
-    return McdFrameworkTypeIsValid(g->frame, type) && f->shapeFns[type] ? f->shapeFns[type](g) : nullptr;
+    btCollisionShape* shape = McdFrameworkTypeIsValid(g->frame, type) && f->shapeFns[type] ? f->shapeFns[type](g) : nullptr;
+    return shape ? shape : &f->emptyShape;
 }

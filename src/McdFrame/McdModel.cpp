@@ -1,4 +1,5 @@
 #include <cstring>
+#include <iterator>
 
 #include "McdImpl.h"
 
@@ -10,27 +11,37 @@ const MeReal kIdentity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 
 void mcdModelSync(McdModelID m)
 {
+    if (m->mRelTM && m->mRefTM)
+        McdModelCompoundTransforms(m);
     McdModelImpl* mi = impl(m);
-    btTransform t = toBtTransform(m->mInstance.mTM);
-    mi->object.setWorldTransform(t);
-    btVector3 lo, hi;
-    mi->object.getCollisionShape()->getAabb(t, lo, hi);
-    btVector3 pad(m->mPadding, m->mPadding, m->mPadding);
-    fromBt(lo - pad, m->mInstance.min);
-    fromBt(hi + pad, m->mInstance.max);
+    McdGeometryInstance& ins = m->mInstance;
+    mi->object.setWorldTransform(toBtTransform(ins.mTM));
+    McdGeometryInstanceUpdateAABB(&ins, ins.mTM, 1);
+    for (int k = 0; k < 3; ++k)
+    {
+        ins.min[k] -= m->mPadding;
+        ins.max[k] += m->mPadding;
+    }
+}
+
+void mcdFreeChildInstances(McdGeometryInstance* ins)
+{
+    for (McdGeometryInstance* c = ins->child; c;)
+    {
+        McdGeometryInstance* next = c->next;
+        mcdFreeChildInstances(c);
+        delete reinterpret_cast<McdChildInstance*>(c);
+        c = next;
+    }
+    ins->child = nullptr;
 }
 
 extern "C" {
 
 McdModelID MEAPI McdModelCreate(McdGeometryID g)
 {
-    btCollisionShape* shape = g ? mcdGeometryShape(g) : nullptr;
-    if (!shape)
-    {
-        // User geometry plug-ins need a btCollisionShape adapter over their vtable before they can be models.
-        MeWarning(0, "McdModelCreate: geometry type has no collision backend");
+    if (!g)
         return nullptr;
-    }
     auto* mi = new McdModelImpl();
     McdModel& m = mi->pub;
     McdFrameworkID f = g->frame;
@@ -40,7 +51,7 @@ McdModelID MEAPI McdModelCreate(McdGeometryID g)
     m.mSpaceID = -1;
     m.mInstance.mGeometry = g;
     m.mInstance.mTM = mi->ownTM;
-    mi->object.setCollisionShape(shape);
+    mi->object.setCollisionShape(mcdGeometryShape(g));
     // Bullet defaults collision objects to static, which only matters to its dynamics, not to Mcd queries.
     mi->object.setCollisionFlags(0);
     mi->object.setUserPointer(&m);
@@ -73,6 +84,10 @@ void MEAPI McdModelDestroy(McdModelID cm)
         cm->next->prev = cm->prev;
     --f->modelCount;
     McdGeometryDecrementReferenceCount(cm->mInstance.mGeometry);
+    mcdFreeChildInstances(&cm->mInstance);
+    std::set<McdModelKey>& disabled = impl(f)->disabledPairs;
+    for (auto it = disabled.begin(); it != disabled.end();)
+        it = it->first == cm || it->second == cm ? disabled.erase(it) : std::next(it);
     delete impl(cm);
 }
 
@@ -98,7 +113,120 @@ McdGeometryType MEAPI McdModelGetGeometryType(McdModelID cm)
 
 void MEAPI McdModelSetTransformPtr(const McdModelID cm, const MeMatrix4Ptr geometryTM)
 {
-    cm->mInstance.mTM = geometryTM ? geometryTM : impl(cm)->ownTM;
+    MeMatrix4Ptr tm = geometryTM ? geometryTM : impl(cm)->ownTM;
+    // A model with a relative transform follows its reference frame, so the new matrix becomes that frame.
+    if (cm->mRelTM)
+        cm->mRefTM = tm;
+    else
+        cm->mInstance.mTM = tm;
+}
+
+void MEAPI McdModelReset(McdModelID cm)
+{
+    if (cm->mSpace)
+    {
+        MeWarning(0, "McdModelReset: remove the model from its space first");
+        return;
+    }
+    McdModelImpl* mi = impl(cm);
+    McdModel& m = mi->pub;
+    std::memcpy(mi->ownTM, kIdentity, sizeof(kIdentity));
+    m.linearVelocity = m.angularVelocity = nullptr;
+    m.mPadding = m.frame->mDefaultPadding;
+    m.sortKey = 0;
+    m.mBody = nullptr;
+    m.mRequestID = 0;
+    m.mTransformUpdateFn = nullptr;
+    m.mRelTM = m.mRefTM = nullptr;
+    m.mIntersectFn = nullptr;
+    m.flags = 0;
+    m.mInstance.mTM = mi->ownTM;
+    m.mInstance.mMaterial = 0;
+    m.mData = nullptr;
+    mi->cullTable = nullptr;
+    mcdModelSync(cm);
+}
+
+void MEAPI McdModelSetGeometry(McdModelID cm, McdGeometryID g)
+{
+    // Pairs in a space cache narrowphase state built for the old shape.
+    if (cm->mSpace || !g)
+    {
+        MeWarning(0, "McdModelSetGeometry: the model must not be in a space");
+        return;
+    }
+    McdGeometryDecrementReferenceCount(cm->mInstance.mGeometry);
+    mcdFreeChildInstances(&cm->mInstance);
+    McdGeometryIncrementReferenceCount(g);
+    cm->mInstance.mGeometry = g;
+    impl(cm)->object.setCollisionShape(mcdGeometryShape(g));
+    mcdModelSync(cm);
+}
+
+void MEAPI McdModelSetRelativeTransform(McdModelID cm, MeMatrix4 relTM)
+{
+    McdModelImpl* mi = impl(cm);
+    std::memcpy(mi->ownRelTM, relTM, sizeof(MeMatrix4));
+    MeMatrix4Ptr ref = cm->mRelTM ? cm->mRefTM : cm->mInstance.mTM;
+    McdModelSetRelativeTransformPtrs(cm, mi->ownRelTM, ref, mi->compoundTM, 1);
+}
+
+MeMatrix4Ptr MEAPI McdModelGetRelativeTransform(McdModelID cm)
+{
+    return cm->mRelTM;
+}
+
+void MEAPI McdModelSetRelativeTransformPtrs(McdModelID cm, MeMatrix4 relTM, MeMatrix4 refTM, MeMatrix4 compoundTM,
+                                            MeBool own)
+{
+    if (!relTM || !refTM)
+    {
+        MeMatrix4Ptr ref = cm->mRefTM;
+        cm->mRelTM = cm->mRefTM = nullptr;
+        cm->flags &= ~kMcdModelOwnRelativeTransforms;
+        cm->mInstance.mTM = ref ? ref : impl(cm)->ownTM;
+        return;
+    }
+    cm->mRelTM = relTM;
+    cm->mRefTM = refTM;
+    cm->mInstance.mTM = compoundTM ? compoundTM : impl(cm)->compoundTM;
+    cm->flags = own ? cm->flags | kMcdModelOwnRelativeTransforms : cm->flags & ~kMcdModelOwnRelativeTransforms;
+    McdModelCompoundTransforms(cm);
+}
+
+void MEAPI McdModelGetRelativeTransformPtrs(McdModelID cm, MeMatrix4Ptr* relTM, MeMatrix4Ptr* refTM)
+{
+    *relTM = cm->mRelTM;
+    *refTM = cm->mRefTM;
+}
+
+// Row vectors: a point maps through relTM first, then through refTM.
+void MEAPI McdModelCompoundTransforms(McdModelID cm)
+{
+    if (cm->mRelTM && cm->mRefTM)
+        fromBtTransform(toBtTransform(cm->mRefTM) * toBtTransform(cm->mRelTM), cm->mInstance.mTM);
+}
+
+void MEAPI McdModelUpdatePath(McdModelID cm, MeReal motionDuration)
+{
+    McdModelUpdate(cm);
+    if (!cm->linearVelocity)
+        return;
+    for (int k = 0; k < 3; ++k)
+    {
+        MeReal d = cm->linearVelocity[k] * motionDuration;
+        (d < 0 ? cm->mInstance.min[k] : cm->mInstance.max[k]) += d;
+    }
+}
+
+void MEAPI McdModelUpdatePathCompatible(McdModelID cm, MeReal)
+{
+    McdModelUpdate(cm);
+}
+
+void MEAPI McdModelGetBSphere(McdModelID cm, MeVector3 center, MeReal* radius)
+{
+    McdGeometryInstanceGetBSphere(&cm->mInstance, center, radius);
 }
 
 MeMatrix4Ptr MEAPI McdModelGetTransformPtr(McdModelID cm)

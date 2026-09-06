@@ -1,6 +1,19 @@
 #pragma once
 
+#include <McdPrimitives.h>
+
 #include "McdImpl.h"
+
+// Maps a local support point of a geometry instance to world space.
+template <class LocalFn>
+void worldMaximumPoint(McdGeometryInstanceID ins, const MeReal* inDir, MeReal* outPoint, LocalFn local)
+{
+    btTransform t = toBtTransform(ins->mTM);
+    MeVector3 dir, out;
+    fromBt(t.getBasis().transpose() * toBt(inDir), dir);
+    local(dir, out);
+    fromBt(t * toBt(out), outPoint);
+}
 
 // Geometry vtable entries shared by every primitive whose public struct is followed by a Bullet shape.
 template <class Impl>
@@ -42,31 +55,18 @@ struct Primitive
 
     static void MEAPI maximumPoint(McdGeometryInstanceID ins, MeReal* const inDir, MeReal* const outPoint)
     {
-        btTransform t = toBtTransform(ins->mTM);
         auto* convex = static_cast<btConvexShape*>(shape(ins->mGeometry));
-        btVector3 local = convex->localGetSupportingVertex(t.getBasis().transpose() * toBt(inDir));
-        fromBt(t * local, outPoint);
+        worldMaximumPoint(ins, inDir, outPoint,
+                          [convex](MeReal* dir, MeReal* out) { fromBt(convex->localGetSupportingVertex(toBt(dir)), out); });
     }
 
     static void registerType(McdFramework* frame, int typeId, const char* name,
-                             McdGeometryGetMassPropertiesFnPtr massProperties, bool convex = true)
+                             McdGeometryGetMassPropertiesFnPtr massProperties,
+                             McdGeometryMaximumPointFnPtr maxPoint = maximumPoint,
+                             McdGeometryGetBSphereFnPtr bsphere = getBSphere)
     {
         McdFrameworkRegisterGeometryType(frame, (McdGeometryType)typeId, const_cast<char*>(name), destroy, updateAABB,
-                                         getBSphere, convex ? maximumPoint : nullptr, massProperties, nullptr);
+                                         bsphere, maxPoint, massProperties, nullptr);
         mcdRegisterShapeFn(frame, typeId, shape);
     }
 };
-
-// Mass properties are reported for unit density: inertia is per unit mass and volume is returned separately.
-inline void setDiagonalInertia(MeMatrix4 relTM, MeMatrix3 inertia, MeReal ix, MeReal iy, MeReal iz)
-{
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c)
-            relTM[r][c] = r == c ? (MeReal)1 : (MeReal)0;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c)
-            inertia[r][c] = 0;
-    inertia[0][0] = ix;
-    inertia[1][1] = iy;
-    inertia[2][2] = iz;
-}

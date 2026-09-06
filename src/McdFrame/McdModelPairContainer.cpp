@@ -1,4 +1,5 @@
 #include <cstring>
+#include <initializer_list>
 
 #include "McdImpl.h"
 
@@ -105,6 +106,30 @@ MeBool MEAPI McdModelPairContainerInsertStayingPair(McdModelPairContainer* c, Mc
     return insertAt(c, c->stayingEnd, p);
 }
 
+// p points into the container's array. Every range boundary after the removed slot moves down by one.
+void MEAPI McdModelPairContainerRemovePair(McdModelPairContainer* c, McdModelPairID* p)
+{
+    int at = (int)(p - c->array);
+    if (at < 0 || at >= c->stayingEnd)
+        return;
+    std::memmove(c->array + at, c->array + at + 1, (c->stayingEnd - at - 1) * sizeof(McdModelPair*));
+    for (int* boundary : {&c->goodbyeEnd, &c->helloFirst, &c->helloEndStayingFirst, &c->stayingEnd})
+        if (*boundary > at)
+            --*boundary;
+}
+
+void MEAPI McdModelPairContainerPrintStats(McdModelPairContainer* c)
+{
+    MeInfo(0, "McdModelPairContainer: size %d goodbye %d hello %d staying %d", c->size,
+           McdModelPairContainerGetGoodbyeCount(c), McdModelPairContainerGetHelloCount(c),
+           McdModelPairContainerGetStayingCount(c));
+}
+
+void MEAPI McdPairContainerPrintStats(McdModelPairContainer* c)
+{
+    McdModelPairContainerPrintStats(c);
+}
+
 void MEAPI McdModelPairContainerIteratorInit(McdModelPairContainerIterator* it, McdModelPairContainer* c)
 {
     it->container = c;
@@ -112,3 +137,28 @@ void MEAPI McdModelPairContainerIteratorInit(McdModelPairContainerIterator* it, 
 }
 
 } // extern "C"
+
+int mcdFillContainer(McdModelPairContainer* c, McdSpacePairIterator* it, const std::vector<McdModelPair*>& goodbye,
+                     const std::vector<McdModelPair*>& hello, const std::vector<McdModelPair*>* staying)
+{
+    McdModelPairContainerReset(c);
+    const std::vector<McdModelPair*>* lists[] = {&goodbye, &hello, staying};
+    MeBool (MEAPI * insert[])(McdModelPairContainer*, McdModelPairID) = {
+        McdModelPairContainerInsertGoodbyePair, McdModelPairContainerInsertHelloPair,
+        McdModelPairContainerInsertStayingPair};
+    int index = 0;
+    for (int l = 0; l < 3; ++l)
+    {
+        if (!lists[l])
+            continue;
+        for (McdModelPair* p : *lists[l])
+        {
+            if (index++ < it->count)
+                continue;
+            if (!insert[l](c, p))
+                return 1;
+            ++it->count;
+        }
+    }
+    return 0;
+}

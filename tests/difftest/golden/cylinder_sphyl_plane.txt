@@ -1,0 +1,26 @@
+= cylinder radius 0.500 height 1.000
+= sphyl radius 0.300 height 1.000
+= cylinder upright touch 1 contacts 4
+~0.001 cylinder upright deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 cylinder upright centroid 0.000 0.000 -0.050
+= cylinder side touch 1 contacts 2
+~0.001 cylinder side deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 cylinder side centroid 0.000 0.000 -0.050
+= cylinder tilted touch 1 contacts 1
+~0.001 cylinder tilted deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 cylinder tilted centroid 0.000 -0.330 -0.050
+= sphyl upright touch 1 contacts 1
+~0.001 sphyl upright deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 sphyl upright centroid 0.000 0.000 0.000
+= sphyl side touch 1 contacts 2
+~0.001 sphyl side deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 sphyl side centroid 0.000 0.000 -0.000
+= sphyl tilted touch 1 contacts 1
+~0.001 sphyl tilted deepest -0.0500 normal 0.000 0.000 1.000
+~0.02 sphyl tilted centroid 0.000 0.148 0.000
+~0.0001 cylinder mass 0.78540 inertia 0.11454 0.11454 0.09817
+~0.0001 sphyl mass 0.39655 inertia 0.07392 0.07392 0.01784
+~1 cylinder first touch step 55
+~1 sphyl first touch step 58
+~0.005 cylinder rest -2.0000 0.0000 0.4997
+~0.005 sphyl rest 2.0000 0.0000 0.2997

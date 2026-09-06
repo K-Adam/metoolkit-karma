@@ -34,7 +34,7 @@ MeI16 MEAPI McdBoxGetMassProperties(McdGeometryID g, MeMatrix4 relTM, MeMatrix3 
 {
     const MeReal* r = P::get(g)->pub.mR;
     MeReal x2 = 4 * r[0] * r[0], y2 = 4 * r[1] * r[1], z2 = 4 * r[2] * r[2];
-    setDiagonalInertia(relTM, inertia, (y2 + z2) / 12, (x2 + z2) / 12, (x2 + y2) / 12);
+    mcdSetDiagonalInertia(relTM, inertia, (y2 + z2) / 12, (x2 + z2) / 12, (x2 + y2) / 12);
     *volume = 8 * r[0] * r[1] * r[2];
     return 1;
 }
@@ -92,6 +92,13 @@ void MEAPI McdBoxGetBSphere(McdGeometryID g, MeVector3 center, MeReal* radius)
 void MEAPI McdBoxMaximumPoint(McdGeometryInstanceID ins, MeReal* const inDir, MeReal* const outPoint)
 {
     P::maximumPoint(ins, inDir, outPoint);
+}
+
+void MEAPI McdBoxMaximumPointLocal(McdBoxID g, MeReal* inDir, MeReal* outPoint)
+{
+    const MeReal* r = P::get(g)->pub.mR;
+    for (int k = 0; k < 3; ++k)
+        outPoint[k] = inDir[k] < 0 ? -r[k] : r[k];
 }
 
 char* MEAPI McdBoxGetTypeName(McdGeometryID)

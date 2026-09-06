@@ -138,6 +138,72 @@ McdInteractions* MEAPI McdFrameworkGetInteractions(McdFramework* frame, int geoT
     return &frame->interactionTable[geoType1 * frame->geometryRegisteredCountMax + geoType2];
 }
 
+void MEAPI McdFrameworkShowTypes(const McdFrameworkID frame)
+{
+    for (int t = 0; t < frame->geometryRegisteredCountMax; ++t)
+        if (McdFrameworkTypeIsRegistered(frame, t))
+            MeInfo(0, "geometry type %d: %s", t, frame->geometryVTableTable[t].name);
+}
+
+void MEAPI McdFrameworkDestroyAllModelsAndGeometries(McdFrameworkID f)
+{
+    while (McdModelID m = f->firstModel)
+    {
+        if (m->mSpace)
+            McdSpaceRemoveModel(m);
+        McdModelDestroy(m);
+    }
+    // Unreferenced geometry goes first, so an aggregate releases its elements before they are destroyed.
+    while (McdGeometryID g = f->firstGeometry)
+    {
+        McdGeometryID free = g;
+        while (free && McdGeometryGetReferenceCount(free) > 0)
+            free = free->next;
+        if (!free)
+            McdGeometrySetReferenceCount(free = g, 0);
+        McdGeometryDestroy(free);
+        // A type without a working destroy would otherwise stay in the list forever.
+        if (f->firstGeometry == g && free == g)
+            McdGeometryDeinit(g);
+    }
+}
+
+void MEAPI McdFrameworkSetInteractionsWarned(McdFramework* framework, int geoType1, int geoType2, int count)
+{
+    if (McdInteractions* i = McdFrameworkGetInteractions(framework, geoType1, geoType2))
+        i->warned = (MeBool)count;
+}
+
+int MEAPI McdFrameworkGetInteractionsWarned(McdFramework* framework, int geoType1, int geoType2)
+{
+    McdInteractions* i = McdFrameworkGetInteractions(framework, geoType1, geoType2);
+    return i ? i->warned : 0;
+}
+
+void MEAPI McdFrameworkPrintInteractionTable(McdFramework* frame)
+{
+    for (int a = 0; a < frame->geometryRegisteredCountMax; ++a)
+    {
+        char row[256];
+        int n = 0;
+        for (int b = 0; b < frame->geometryRegisteredCountMax && n < (int)sizeof(row) - 1; ++b)
+            row[n++] = McdFrameworkGetInteractions(frame, a, b)->intersectFn ? 'X' : '.';
+        row[n] = 0;
+        MeInfo(0, "%2d %s", a, row);
+    }
+}
+
+void MEAPI McdFrameworkSetLineSegInteraction(McdFramework* frame, int geoType, McdLineSegIntersectFnPtr isectfn)
+{
+    if (McdFrameworkTypeIsValid(frame, geoType))
+        frame->geometryVTableTable[geoType].lineSegIntersect = isectfn;
+}
+
+McdLineSegIntersectFnPtr MEAPI McdFrameworkGetLineSegInteraction(McdFramework* frame, int geoType)
+{
+    return McdFrameworkTypeIsValid(frame, geoType) ? frame->geometryVTableTable[geoType].lineSegIntersect : nullptr;
+}
+
 } // extern "C"
 
 void mcdRegisterShapeFn(McdFrameworkID frame, int typeId, McdShapeFn fn)

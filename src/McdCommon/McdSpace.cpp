@@ -1,26 +1,140 @@
 #include <algorithm>
+#include <functional>
 #include <set>
 
 #include "McdImpl.h"
 
 namespace {
 
-typedef std::pair<McdModelID, McdModelID> PairKey;
-
 McdModelID modelOf(btBroadphaseProxy* proxy)
 {
     return static_cast<McdModelID>(static_cast<btCollisionObject*>(proxy->m_clientObject)->getUserPointer());
 }
 
-PairKey orderedKey(McdModelID a, McdModelID b)
+McdModelID modelOf(btCollisionObject* o)
 {
-    return a->mSpaceID < b->mSpaceID ? PairKey(a, b) : PairKey(b, a);
+    return static_cast<McdModelID>(o->getUserPointer());
+}
+
+McdModelKey orderedKey(McdModelID a, McdModelID b)
+{
+    return a->mSpaceID < b->mSpaceID ? McdModelKey(a, b) : McdModelKey(b, a);
 }
 
 void syncBroadphase(McdSpaceID s, McdModelID m)
 {
     btBroadphaseProxy* proxy = impl(m)->object.getBroadphaseHandle();
     s->broadphase.setAabb(proxy, toBt(m->mInstance.min), toBt(m->mInstance.max), &s->frame->dispatcher);
+}
+
+void detach(McdSpaceID s, McdModelID m)
+{
+    s->world.removeCollisionObject(&impl(m)->object);
+    m->mSpace = nullptr;
+    m->mSpaceID = -1;
+    impl(m)->frozen = false;
+}
+
+bool culled(McdModelID a, McdModelID b)
+{
+    McdModelImpl *ia = impl(a), *ib = impl(b);
+    return ia->cullTable && ia->cullTable == ib->cullTable && ia->cullId == ib->cullId &&
+           McdCullingTableGet(ia->cullTable, (MeU32)ia->cullIndex, (MeU32)ib->cullIndex);
+}
+
+bool pairEnabled(McdModelID a, McdModelID b)
+{
+    return !impl(a->frame)->disabledPairs.count(mcdUnorderedKey(a, b)) && !culled(a, b);
+}
+
+void updatePairs(McdSpaceID s, const std::function<void(McdModelID)>& updateModel)
+{
+    for (McdModelPair* p : s->goodbye)
+        McdModelPairDestroy(p);
+    s->goodbye.swap(s->removed);
+    s->removed.clear();
+    s->hello.clear();
+    s->staying.clear();
+
+    btCollisionObjectArray& objects = s->world.getCollisionObjectArray();
+    for (int i = 0; i < objects.size(); ++i)
+    {
+        McdModelID m = modelOf(objects[i]);
+        if (!impl(m)->frozen)
+        {
+            updateModel(m);
+            syncBroadphase(s, m);
+        }
+    }
+    // Not computeOverlappingPairs: that would replace the model AABBs with Bullet's own.
+    s->broadphase.calculateOverlappingPairs(&s->frame->dispatcher);
+
+    std::set<McdModelKey> current;
+    btBroadphasePairArray& overlaps = s->broadphase.getOverlappingPairCache()->getOverlappingPairArray();
+    for (int i = 0; i < overlaps.size(); ++i)
+    {
+        btBroadphaseProxy *p0 = overlaps[i].m_pProxy0, *p1 = overlaps[i].m_pProxy1;
+        McdModelID a = modelOf(p0), b = modelOf(p1);
+        if ((impl(a)->frozen && impl(b)->frozen) || !pairEnabled(a, b))
+            continue;
+        // The DBVT pads its leaves and prunes stale pairs lazily, so its pair cache over-reports.
+        if (!TestAabbAgainstAabb2(p0->m_aabbMin, p0->m_aabbMax, p1->m_aabbMin, p1->m_aabbMax))
+            continue;
+        McdModelKey key = orderedKey(a, b);
+        auto found = s->pairs.find(key);
+        if (found == s->pairs.end())
+        {
+            if (s->pairs.size() >= s->pairCapacity)
+            {
+                if (s->poolFullHandler)
+                    s->poolFullHandler(key.first, key.second);
+                continue;
+            }
+            McdModelPair* p = McdModelPairCreate(key.first, key.second);
+            s->pairs.emplace(key, p);
+            s->hello.push_back(p);
+        }
+        else
+            s->staying.push_back(found->second);
+        current.insert(key);
+    }
+    for (auto it = s->pairs.begin(); it != s->pairs.end();)
+    {
+        if (current.count(it->first))
+            ++it;
+        else
+        {
+            s->goodbye.push_back(it->second);
+            it = s->pairs.erase(it);
+        }
+    }
+}
+
+typedef std::pair<MeReal, McdLineSegIntersectResult> Hit;
+
+// Every model the segment enters, nearest first.
+std::vector<Hit> lineSegHits(McdSpaceID s, MeReal* inOrig, MeReal* inDest, McdLineSegIntersectEnableCallback filter,
+                             void* filterData)
+{
+    std::vector<Hit> hits;
+    btVector3 from = toBt(inOrig), to = toBt(inDest);
+    btCollisionObjectArray& objects = s->world.getCollisionObjectArray();
+    for (int i = 0; i < objects.size(); ++i)
+    {
+        McdModelID m = modelOf(objects[i]);
+        btScalar lambda = 1;
+        btVector3 normal;
+        if (!btRayAabb(from, to, toBt(m->mInstance.min), toBt(m->mInstance.max), lambda, normal) &&
+            !TestPointAgainstAabb2(toBt(m->mInstance.min), toBt(m->mInstance.max), from))
+            continue;
+        if (filter && !filter(m, filterData))
+            continue;
+        McdLineSegIntersectResult r;
+        if (McdLineSegIntersect(m, inOrig, inDest, &r))
+            hits.emplace_back(r.distance, r);
+    }
+    std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) { return a.first < b.first; });
+    return hits;
 }
 
 } // namespace
@@ -36,8 +150,8 @@ McdSpaceID MEAPI McdSpaceAxisSortCreate(McdFrameworkID fwk, int axes, int object
 {
     (void)axes;
     (void)objectCount;
-    (void)pairCount;
     McdSpaceID s = new _McdSpace(impl(fwk));
+    s->pairCapacity = (size_t)std::max(pairCount, 0);
     // A new space starts inside a change block so it can be populated right away.
     McdSpaceBeginChanges(s);
     return s;
@@ -57,11 +171,7 @@ void MEAPI McdSpaceDestroy(McdSpaceID s)
     btCollisionObjectArray& objects = s->world.getCollisionObjectArray();
     while (objects.size() > 0)
     {
-        auto* m = static_cast<McdModelID>(objects[0]->getUserPointer());
-        s->world.removeCollisionObject(objects[0]);
-        m->mSpace = nullptr;
-        m->mSpaceID = -1;
-        impl(m)->frozen = false;
+        detach(s, modelOf(objects[0]));
     }
     delete s;
 }
@@ -83,6 +193,24 @@ MeBool MEAPI McdSpaceInsertModel(McdSpaceID s, McdModelID cm)
     return 1;
 }
 
+MeBool MEAPI McdSpaceInsertModelWithCulling(McdSpaceID s, McdModelID cm, McdCullingTable* table, int cullingIndex,
+                                            int cullingID)
+{
+    if (!McdSpaceInsertModel(s, cm))
+        return 0;
+    McdSpaceSetModelCullingParameters(s, cm, table, cullingIndex, cullingID);
+    return 1;
+}
+
+void MEAPI McdSpaceSetModelCullingParameters(McdSpaceID, McdModelID cm, McdCullingTable* table, int cullingIndex,
+                                             int cullingID)
+{
+    McdModelImpl* mi = impl(cm);
+    mi->cullTable = table;
+    mi->cullIndex = cullingIndex;
+    mi->cullId = cullingID;
+}
+
 MeBool MEAPI McdSpaceRemoveModel(McdModelID cm)
 {
     McdSpaceID s = cm ? cm->mSpace : nullptr;
@@ -102,10 +230,7 @@ MeBool MEAPI McdSpaceRemoveModel(McdModelID cm)
         else
             ++it;
     }
-    s->world.removeCollisionObject(&impl(cm)->object);
-    cm->mSpace = nullptr;
-    cm->mSpaceID = -1;
-    impl(cm)->frozen = false;
+    detach(s, cm);
     return 1;
 }
 
@@ -139,55 +264,22 @@ MeBool MEAPI McdSpaceModelIsFrozen(McdModelID cm)
 
 void MEAPI McdSpaceUpdateAll(McdSpaceID s)
 {
-    for (McdModelPair* p : s->goodbye)
-        McdModelPairDestroy(p);
-    s->goodbye.swap(s->removed);
-    s->removed.clear();
-    s->hello.clear();
-    s->staying.clear();
+    updatePairs(s, McdModelUpdate);
+}
 
-    btCollisionObjectArray& objects = s->world.getCollisionObjectArray();
-    for (int i = 0; i < objects.size(); ++i)
-    {
-        auto* m = static_cast<McdModelID>(objects[i]->getUserPointer());
-        if (!impl(m)->frozen)
-            McdSpaceUpdateModel(m);
-    }
-    s->world.computeOverlappingPairs();
+void MEAPI McdSpacePathUpdateAll(McdSpaceID s, MeReal duration)
+{
+    updatePairs(s, [s, duration](McdModelID m) {
+        if (s->aabbFn)
+            s->aabbFn(m, duration);
+        else
+            McdModelUpdatePath(m, duration);
+    });
+}
 
-    std::set<PairKey> current;
-    btBroadphasePairArray& overlaps = s->broadphase.getOverlappingPairCache()->getOverlappingPairArray();
-    for (int i = 0; i < overlaps.size(); ++i)
-    {
-        btBroadphaseProxy *p0 = overlaps[i].m_pProxy0, *p1 = overlaps[i].m_pProxy1;
-        McdModelID a = modelOf(p0), b = modelOf(p1);
-        if (impl(a)->frozen && impl(b)->frozen)
-            continue;
-        // The DBVT pads its leaves and prunes stale pairs lazily, so its pair cache over-reports.
-        if (!TestAabbAgainstAabb2(p0->m_aabbMin, p0->m_aabbMax, p1->m_aabbMin, p1->m_aabbMax))
-            continue;
-        PairKey key = orderedKey(a, b);
-        current.insert(key);
-        auto found = s->pairs.find(key);
-        if (found == s->pairs.end())
-        {
-            McdModelPair* p = McdModelPairCreate(key.first, key.second);
-            s->pairs.emplace(key, p);
-            s->hello.push_back(p);
-        }
-        else
-            s->staying.push_back(found->second);
-    }
-    for (auto it = s->pairs.begin(); it != s->pairs.end();)
-    {
-        if (current.count(it->first))
-            ++it;
-        else
-        {
-            s->goodbye.push_back(it->second);
-            it = s->pairs.erase(it);
-        }
-    }
+void MEAPI McdSpaceSetAABBFn(McdSpaceID s, McdSpaceUpdateAABBFnPtr updateAABBFn)
+{
+    s->aabbFn = updateAABBFn;
 }
 
 void MEAPI McdSpaceBeginChanges(McdSpaceID space)
@@ -204,6 +296,60 @@ void MEAPI McdSpaceEndChanges(McdSpaceID space)
 int MEAPI McdSpaceIsChanging(McdSpaceID space)
 {
     return space->changing > 0;
+}
+
+int MEAPI McdSpaceGetLineSegIntersections(McdSpaceID space, MeReal* inOrig, MeReal* inDest,
+                                          McdLineSegIntersectResult* outList, int inMaxListSize)
+{
+    std::vector<Hit> hits = lineSegHits(space, inOrig, inDest, nullptr, nullptr);
+    int n = std::min((int)hits.size(), inMaxListSize);
+    for (int i = 0; i < n; ++i)
+        outList[i] = hits[i].second;
+    return n;
+}
+
+int MEAPI McdSpaceGetLineSegFirstIntersection(McdSpaceID space, MeReal* inOrig, MeReal* inDest,
+                                              McdLineSegIntersectResult* outResult)
+{
+    return McdSpaceGetLineSegFirstEnabledIntersection(space, inOrig, inDest, nullptr, nullptr, outResult);
+}
+
+int MEAPI McdSpaceGetLineSegFirstEnabledIntersection(McdSpaceID space, MeReal* inOrig, MeReal* inDest,
+                                                     McdLineSegIntersectEnableCallback filterCB, void* filterData,
+                                                     McdLineSegIntersectResult* outResult)
+{
+    std::vector<Hit> hits = lineSegHits(space, inOrig, inDest, filterCB, filterData);
+    if (hits.empty())
+        return 0;
+    *outResult = hits[0].second;
+    return 1;
+}
+
+void MEAPI McdSpaceSetPoolFullHandler(McdSpaceID space, McdSpacePoolErrorFnPtr handler)
+{
+    space->poolFullHandler = handler;
+}
+
+McdSpacePoolErrorFnPtr MEAPI McdSpaceGetPoolFullHandler(McdSpaceID space)
+{
+    return space->poolFullHandler;
+}
+
+MeBool MEAPI McdSpaceEnablePair(McdModelID cm1, McdModelID cm2)
+{
+    impl(cm1->frame)->disabledPairs.erase(mcdUnorderedKey(cm1, cm2));
+    return 1;
+}
+
+MeBool MEAPI McdSpaceDisablePair(McdModelID cm1, McdModelID cm2)
+{
+    impl(cm1->frame)->disabledPairs.insert(mcdUnorderedKey(cm1, cm2));
+    return 1;
+}
+
+MeBool MEAPI McdSpacePairIsEnabled(McdModelID cm1, McdModelID cm2)
+{
+    return pairEnabled(cm1, cm2);
 }
 
 void MEAPI McdSpaceSetUserData(McdSpaceID s, void* data)
@@ -229,24 +375,27 @@ void MEAPI McdSpacePairIteratorBegin(McdSpaceID s, McdSpacePairIterator* it)
 
 int MEAPI McdSpaceGetPairs(McdSpaceID s, McdSpacePairIterator* it, McdModelPairContainer* c)
 {
-    McdModelPairContainerReset(c);
-    const std::vector<McdModelPair*>* lists[] = {&s->goodbye, &s->hello, &s->staying};
-    MeBool (MEAPI * insert[])(McdModelPairContainer*, McdModelPairID) = {
-        McdModelPairContainerInsertGoodbyePair, McdModelPairContainerInsertHelloPair,
-        McdModelPairContainerInsertStayingPair};
-    int index = 0;
-    for (int l = 0; l < 3; ++l)
-    {
-        for (McdModelPair* p : *lists[l])
-        {
-            if (index++ < it->count)
-                continue;
-            if (!insert[l](c, p))
-                return 1;
-            ++it->count;
-        }
-    }
-    return 0;
+    return mcdFillContainer(c, it, s->goodbye, s->hello, &s->staying);
+}
+
+int MEAPI McdSpaceGetTransitions(McdSpaceID s, McdSpacePairIterator* iter, McdModelPairContainer* a)
+{
+    return mcdFillContainer(a, iter, s->goodbye, s->hello, nullptr);
+}
+
+void MEAPI McdSpaceModelIteratorBegin(McdSpaceID, McdSpaceModelIterator* it)
+{
+    it->it = 0;
+    it->count = 0;
+}
+
+MeBool MEAPI McdSpaceGetModel(McdSpaceID s, McdSpaceModelIterator* it, McdModelID* model)
+{
+    if (it->it >= s->world.getNumCollisionObjects())
+        return 0;
+    *model = modelOf(s->world.getCollisionObjectArray()[it->it++]);
+    ++it->count;
+    return 1;
 }
 
 } // extern "C"
