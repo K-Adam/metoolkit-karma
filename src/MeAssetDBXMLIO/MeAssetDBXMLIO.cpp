@@ -28,8 +28,8 @@ const Name<MeFModelType> kModelTypes[] = {{kMeFModelTypeDynamicsAndGeometry, "dy
                                           {kMeFModelTypeGeometryOnly, "geometry_only"}};
 
 const Name<MeFJointType> kJointTypes[] = {
-    {kMeFJointTypeCarwheel, "carwheel"},    {kMeFJointTypeHinge, "hinge"},         {kMeFJointTypeBallAndSocket, "ball_and_socket"},
-    {kMeFJointTypeConeLimit, "cone_limit"}, {kMeFJointTypeUniversal, "universal"}, {kMeFJointTypeRpro, "rpro"},
+    {kMeFJointTypeCarwheel, "carwheel"},    {kMeFJointTypeHinge, "hinge"},         {kMeFJointTypeBallAndSocket, "ballandsocket"},
+    {kMeFJointTypeConeLimit, "conelimit"}, {kMeFJointTypeUniversal, "universal"}, {kMeFJointTypeRpro, "rpro"},
     {kMeFJointTypePrismatic, "prismatic"},  {kMeFJointTypeSkeletal, "skeletal"},   {kMeFJointTypeAngular3, "angular3"},
     {kMeFJointTypeSpring6, "spring6"}};
 
@@ -64,11 +64,15 @@ struct JointField
     bool real;
 };
 
-// Only the hinge and skeletal tags are attested in shipped .ka files.
-// Prismatic reuses the hinge tags and cone limit reuses the skeletal cone tags.
+// The rpro strength tags are not attested anywhere and follow the spring6 naming. Universal and ball and socket
+// joints have no per type properties.
 const unsigned kLimited = bit(kMeFJointTypeHinge) | bit(kMeFJointTypePrismatic);
-const unsigned kCone = bit(kMeFJointTypeSkeletal) | bit(kMeFJointTypeConeLimit);
 const unsigned kSkeletal = bit(kMeFJointTypeSkeletal);
+const unsigned kCarwheel = bit(kMeFJointTypeCarwheel);
+const unsigned kConeLimit = bit(kMeFJointTypeConeLimit);
+const unsigned kAngular3 = bit(kMeFJointTypeAngular3);
+const unsigned kSpring6 = bit(kMeFJointTypeSpring6);
+const unsigned kRpro = bit(kMeFJointTypeRpro);
 const JointField kJointFields[] = {
     {kLimited, "HIGH_LIMIT", offsetof(MeFJoint, stop[0]), true},
     {kLimited, "LOW_LIMIT", offsetof(MeFJoint, stop[1]), true},
@@ -81,13 +85,45 @@ const JointField kJointFields[] = {
     {kSkeletal, "CONE_TYPE", offsetof(MeFJoint, special_i[1]), false},
     {kSkeletal, "CONE_HALF_ANGLE_X", offsetof(MeFJoint, stop[0]), true},
     {kSkeletal, "CONE_HALF_ANGLE_Y", offsetof(MeFJoint, stop[1]), true},
-    {bit(kMeFJointTypeConeLimit), "CONE_HALF_ANGLE", offsetof(MeFJoint, stop[0]), true},
-    {kCone, "CONE_STIFFNESS", offsetof(MeFJoint, stiff[0]), true},
-    {kCone, "CONE_DAMPING", offsetof(MeFJoint, damp[0]), true},
+    {kSkeletal, "CONE_STIFFNESS", offsetof(MeFJoint, stiff[0]), true},
+    {kSkeletal, "CONE_DAMPING", offsetof(MeFJoint, damp[0]), true},
     {kSkeletal, "TWIST_TYPE", offsetof(MeFJoint, special_i[0]), false},
     {kSkeletal, "TWIST_HALF_ANGLE", offsetof(MeFJoint, stop[2]), true},
     {kSkeletal, "TWIST_STIFFNESS", offsetof(MeFJoint, stiff[1]), true},
     {kSkeletal, "TWIST_DAMPING", offsetof(MeFJoint, damp[1]), true},
+    {kCarwheel, "HINGE_DES_VEL", offsetof(MeFJoint, desVel[0]), true},
+    {kCarwheel, "HINGE_MAX_FORCE", offsetof(MeFJoint, strength[0]), true},
+    {kCarwheel, "STEERING_DES_VEL", offsetof(MeFJoint, desVel[1]), true},
+    {kCarwheel, "STEERING_MAX_FORCE", offsetof(MeFJoint, strength[1]), true},
+    {kCarwheel, "STEERING_LOCK", offsetof(MeFJoint, special_b[0]), false},
+    {kCarwheel, "SUSP_HIGH_LIMIT", offsetof(MeFJoint, stop[0]), true},
+    {kCarwheel, "SUSP_LOW_LIMIT", offsetof(MeFJoint, stop[1]), true},
+    {kCarwheel, "SUSP_REF", offsetof(MeFJoint, special_f[0]), true},
+    {kCarwheel, "SUSP_STIFFNESS", offsetof(MeFJoint, stiff[0]), true},
+    {kCarwheel, "SUSP_DAMPING", offsetof(MeFJoint, damp[0]), true},
+    {kCarwheel, "SUSP_SOFTNESS", offsetof(MeFJoint, stiff[2]), true},
+    {kConeLimit, "HALF_ANGLE", offsetof(MeFJoint, stop[0]), true},
+    {kConeLimit | kAngular3, "STIFFNESS", offsetof(MeFJoint, stiff[0]), true},
+    {kConeLimit | kAngular3, "DAMPING", offsetof(MeFJoint, damp[0]), true},
+    {kAngular3, "ROTATION_ENABLED", offsetof(MeFJoint, special_b[0]), false},
+    {kSpring6, "LINEAR_STIFF_X", offsetof(MeFJoint, stiff[0]), true},
+    {kSpring6, "LINEAR_STIFF_Y", offsetof(MeFJoint, stiff[1]), true},
+    {kSpring6, "LINEAR_STIFF_Z", offsetof(MeFJoint, stiff[2]), true},
+    {kSpring6, "ANGULAR_STIFF_X", offsetof(MeFJoint, stiff[3]), true},
+    {kSpring6, "ANGULAR_STIFF_Y", offsetof(MeFJoint, stiff[4]), true},
+    {kSpring6, "ANGULAR_STIFF_Z", offsetof(MeFJoint, stiff[5]), true},
+    {kSpring6, "LINEAR_DAMP_X", offsetof(MeFJoint, damp[0]), true},
+    {kSpring6, "LINEAR_DAMP_Y", offsetof(MeFJoint, damp[1]), true},
+    {kSpring6, "LINEAR_DAMP_Z", offsetof(MeFJoint, damp[2]), true},
+    {kSpring6, "ANGULAR_DAMP_X", offsetof(MeFJoint, damp[3]), true},
+    {kSpring6, "ANGULAR_DAMP_Y", offsetof(MeFJoint, damp[4]), true},
+    {kSpring6, "ANGULAR_DAMP_Z", offsetof(MeFJoint, damp[5]), true},
+    {kRpro, "LINEAR_STRENGTH_X", offsetof(MeFJoint, strength[0]), true},
+    {kRpro, "LINEAR_STRENGTH_Y", offsetof(MeFJoint, strength[1]), true},
+    {kRpro, "LINEAR_STRENGTH_Z", offsetof(MeFJoint, strength[2]), true},
+    {kRpro, "ANGULAR_STRENGTH_X", offsetof(MeFJoint, strength[3]), true},
+    {kRpro, "ANGULAR_STRENGTH_Y", offsetof(MeFJoint, strength[4]), true},
+    {kRpro, "ANGULAR_STRENGTH_Z", offsetof(MeFJoint, strength[5]), true},
 };
 
 struct VectorField
@@ -344,7 +380,7 @@ std::string numbers(const MeReal* v, int n)
     char buf[32];
     for (int i = 0; i < n; ++i)
     {
-        std::snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<MeReal>::digits10 + 1, static_cast<double>(v[i]));
+        std::snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<MeReal>::max_digits10, static_cast<double>(v[i]));
         s += (i ? "," : "") + std::string(buf);
     }
     return s;

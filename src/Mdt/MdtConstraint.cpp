@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cstring>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 namespace {
@@ -317,7 +319,6 @@ void MEAPI MdtConstraintDestroy(const MdtConstraintID c)
 {
     MdtWorldImpl* w = impl(c->head.world);
     w->enabled.erase(c);
-    // Group contacts are owned by their group and are not in this list.
     auto it = std::find(w->constraints.begin(), w->constraints.end(), c);
     if (it != w->constraints.end())
         w->constraints.erase(it);
@@ -388,20 +389,18 @@ void MEAPI MdtConstraintSetSortKey(const MdtConstraintID c, MeI32 key)
 
 void MEAPI MdtConstraintGetForce(const MdtConstraintID c, const unsigned int bodyindex, MeVector3 f)
 {
-    const MdtJointBullet* j = joint(c);
-    if (j)
+    if (const MdtJointBullet* j = joint(c))
         fromBt(bodyindex == 0 ? j->feedback.m_appliedForceBodyA : j->feedback.m_appliedForceBodyB, f);
     else
-        fromBt(toBt(c->head.resultForce[bodyindex & 1]), f);
+        MeVector3Copy(f, c->head.resultForce[bodyindex & 1]);
 }
 
 void MEAPI MdtConstraintGetTorque(const MdtConstraintID c, const unsigned int bodyindex, MeVector3 t)
 {
-    const MdtJointBullet* j = joint(c);
-    if (j)
+    if (const MdtJointBullet* j = joint(c))
         fromBt(bodyindex == 0 ? j->feedback.m_appliedTorqueBodyA : j->feedback.m_appliedTorqueBodyB, t);
     else
-        fromBt(toBt(c->head.resultTorque[bodyindex & 1]), t);
+        MeVector3Copy(t, c->head.resultTorque[bodyindex & 1]);
 }
 
 int MEAPI MdtConstraintGetRowCount(const MdtConstraintID c)

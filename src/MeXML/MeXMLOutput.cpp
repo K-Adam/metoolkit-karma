@@ -6,6 +6,7 @@
 
 #include <MeXMLOutput.h>
 
+#include "StringCopy.h"
 #include "XMLText.h"
 
 namespace {
@@ -88,8 +89,7 @@ int MEAPI MeXMLWriteElement(MeXMLOutput* op, int parent, char* tag, ...)
     write(op, start + ">");
 
     tagNode* node = static_cast<tagNode*>(std::malloc(sizeof(tagNode)));
-    node->tag = static_cast<char*>(std::malloc(std::strlen(tag) + 1));
-    std::strcpy(node->tag, tag);
+    node->tag = duplicateString(tag);
     node->contents = kNothing;
     node->next = op->tagHead;
     op->tagHead = node;

@@ -85,13 +85,16 @@ int MEAPI mcdTriangleListIntersect(McdModelPair* p, McdIntersectResult* r)
         shape.setMargin(0);
         btCollisionObject triObject;
         triObject.setCollisionShape(&shape);
+        triObject.setUserPointer(list);
         btCollisionObjectWrapper triWrap(nullptr, &shape, &triObject, triObject.getWorldTransform(), -1, -1);
         btCollisionAlgorithm* algorithm =
             dispatcher.findAlgorithm(&otherWrap, &triWrap, nullptr, BT_CONTACT_POINT_ALGORITHMS);
         btManifoldResult result(&otherWrap, &triWrap);
+        result.m_closestPointDistanceThreshold = mcdPairTolerance(p);
         algorithm->processCollision(&otherWrap, &triWrap, info, &result);
         int first = r->contactCount;
-        mcdAddManifoldContacts(algorithm, listFirst ? &triObject : &otherObject, r, limit);
+        mcdAddManifoldContacts(algorithm, listFirst ? &triObject : &otherObject, result.m_closestPointDistanceThreshold,
+                               r, limit);
         algorithm->~btCollisionAlgorithm();
         dispatcher.freeCollisionAlgorithm(algorithm);
 

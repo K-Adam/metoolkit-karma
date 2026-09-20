@@ -114,19 +114,6 @@ void updatePartitions(MdtWorldImpl& w)
             MdtBodyDisable(&b->pub);
 }
 
-// mdtContactPrepare tags every manifold point with its MdtContact.
-void collectNormalForces(MdtWorldImpl& w, MeReal dt)
-{
-    for (btPersistentManifold* m : w.stepManifolds)
-        for (int i = 0; i < m->getNumContacts(); ++i)
-        {
-            const btManifoldPoint& pt = m->getContactPoint(i);
-            auto* c = static_cast<MdtContactID>(pt.m_userPersistentData);
-            if (c && c->contactGroup)
-                c->contactGroup->normalForce += pt.m_appliedImpulse / dt;
-        }
-}
-
 // Values the original sets in MdtWorldCreate and restores in MdtWorldReset.
 void setDefaults(MdtWorldImpl& w)
 {
@@ -227,7 +214,7 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
 
     wi.world.stepSimulation(stepSize, 0);
 
-    collectNormalForces(wi, stepSize);
+    mdtContactCollectForces(wi, stepSize);
     for (btPersistentManifold* m : wi.stepManifolds)
         wi.dispatcher.releaseManifold(m);
     wi.stepManifolds.clear();

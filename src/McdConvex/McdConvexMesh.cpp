@@ -20,75 +20,102 @@ struct ConvexImpl
 {
     McdConvexMesh pub;
     btConvexHullShape shape;
+    // Face and vertex arrays end with the sentinel McdQHullTypes.h requires.
     std::vector<McdCnvVertex> vertices;
     std::vector<McdCnvFace> faces;
     std::vector<McdCnvEdge> edges;
     std::vector<int> edgeIndex;
-    // Vertex indices of face f are faceVertices[faceStart[f] .. faceStart[f + 1]).
-    std::vector<int> faceStart, faceVertices;
 };
 
 ConvexImpl* get(McdGeometryID g) { return reinterpret_cast<ConvexImpl*>(g); }
 
 btCollisionShape* shapeOf(McdGeometryID g) { return &get(g)->shape; }
 
+const McdCnvEdge& faceEdge(ConvexImpl* c, int face, int i) { return c->edges[c->faces[face].firstEdge + i]; }
+
+int faceEdgeCount(ConvexImpl* c, int face) { return c->faces[face + 1].firstEdge - c->faces[face].firstEdge; }
+
 void build(ConvexImpl* c, const MeVector3* points, int count, MeReal fatness)
 {
     btConvexHullComputer hull;
     if (count > 0)
         hull.compute(&points[0][0], (int)sizeof(MeVector3), count, 0, 0);
+    const btConvexHullComputer::Edge* base = hull.edges.size() ? &hull.edges[0] : nullptr;
+    auto indexOf = [base](const btConvexHullComputer::Edge* e) { return (int)(e - base); };
 
-    c->vertices.assign(hull.vertices.size(), McdCnvVertex{});
-    for (int i = 0; i < hull.vertices.size(); ++i)
-    {
-        fromBt(hull.vertices[i], c->vertices[i].position);
-        c->vertices[i].firstEdgeIndex = -1;
-    }
-    // Hull edges are half-edges. Each knows the face on its left, found while walking the faces below.
-    std::vector<int> leftFace(hull.edges.size(), -1);
-    c->faces.assign(hull.faces.size(), McdCnvFace{});
-    c->faceStart.assign(1, 0);
-    c->faceVertices.clear();
-    c->edgeIndex.clear();
+    // Hull faces are walked anticlockwise from outside, which orders the edge array by leftFace and ACW.
+    std::vector<int> order, leftFace(hull.edges.size(), -1);
+    c->faces.assign(hull.faces.size() + 1, McdCnvFace{});
     for (int f = 0; f < hull.faces.size(); ++f)
     {
+        c->faces[f].firstEdge = (int)order.size();
         const btConvexHullComputer::Edge* first = &hull.edges[hull.faces[f]];
         const btConvexHullComputer::Edge* e = first;
-        c->faces[f].firstEdge = (int)c->edgeIndex.size();
         do
         {
-            int index = (int)(e - &hull.edges[0]);
-            leftFace[index] = f;
-            c->edgeIndex.push_back(index);
-            c->faceVertices.push_back(e->getTargetVertex());
+            leftFace[indexOf(e)] = f;
+            order.push_back(indexOf(e));
             e = e->getNextEdgeOfFace();
         } while (e != first);
-        c->faceStart.push_back((int)c->faceVertices.size());
-        const int* v = &c->faceVertices[c->faceStart[f]];
-        btVector3 n = (hull.vertices[v[1]] - hull.vertices[v[0]]).cross(hull.vertices[v[2]] - hull.vertices[v[0]]);
-        fromBt(n.normalized(), c->faces[f].normal);
     }
-    c->edges.assign(hull.edges.size(), McdCnvEdge{});
+    c->faces.back().firstEdge = (int)order.size();
+    // A degenerate hull can have edges outside every face.
     for (int i = 0; i < hull.edges.size(); ++i)
+        if (leftFace[i] < 0)
+            order.push_back(i);
+
+    std::vector<int> position(order.size());
+    c->edges.assign(order.size(), McdCnvEdge{});
+    for (size_t i = 0; i < order.size(); ++i)
     {
-        const btConvexHullComputer::Edge& e = hull.edges[i];
+        const btConvexHullComputer::Edge& e = hull.edges[order[i]];
+        position[order[i]] = (int)i;
         McdCnvEdge& out = c->edges[i];
         out.fromVert = e.getSourceVertex();
         out.toVert = e.getTargetVertex();
-        out.leftFace = leftFace[i];
-        out.rightFace = leftFace[(int)(e.getReverseEdge() - &hull.edges[0])];
+        out.leftFace = leftFace[order[i]];
+        out.rightFace = leftFace[indexOf(e.getReverseEdge())];
         out.invLength = 1 / (hull.vertices[out.toVert] - hull.vertices[out.fromVert]).length();
-        if (c->vertices[out.fromVert].firstEdgeIndex < 0)
-            c->vertices[out.fromVert].firstEdgeIndex = i;
     }
+    // A collinear hull has a two-edge face with no normal.
+    for (int f = 0; f < hull.faces.size() && faceEdgeCount(c, f) >= 3; ++f)
+    {
+        auto corner = [&](int i) { return hull.vertices[faceEdge(c, f, i).fromVert]; };
+        btVector3 n = (corner(1) - corner(0)).cross(corner(2) - corner(0));
+        fromBt(n.normalized(), c->faces[f].normal);
+    }
+
+    // Bullet steps clockwise around a vertex seen from outside, so each ring is stored reversed.
+    std::vector<const btConvexHullComputer::Edge*> firstOut(hull.vertices.size(), nullptr);
+    for (int i = 0; i < hull.edges.size(); ++i)
+        if (!firstOut[hull.edges[i].getSourceVertex()])
+            firstOut[hull.edges[i].getSourceVertex()] = &hull.edges[i];
+    c->vertices.assign(hull.vertices.size() + 1, McdCnvVertex{});
+    c->edgeIndex.clear();
+    for (int v = 0; v < hull.vertices.size(); ++v)
+    {
+        fromBt(hull.vertices[v], c->vertices[v].position);
+        c->vertices[v].firstEdgeIndex = (int)c->edgeIndex.size();
+        if (const btConvexHullComputer::Edge* first = firstOut[v])
+        {
+            const btConvexHullComputer::Edge* e = first;
+            do
+            {
+                c->edgeIndex.push_back(position[indexOf(e)]);
+                e = e->getNextEdgeOfVertex();
+            } while (e != first);
+            std::reverse(c->edgeIndex.begin() + c->vertices[v].firstEdgeIndex, c->edgeIndex.end());
+        }
+    }
+    c->vertices.back().firstEdgeIndex = (int)c->edgeIndex.size();
 
     McdConvexHull& h = c->pub.mHull;
     h.vertex = c->vertices.data();
     h.face = c->faces.data();
     h.edge = c->edges.data();
     h.edgeIndex = c->edgeIndex.data();
-    h.numVertex = (int)c->vertices.size();
-    h.numFace = (int)c->faces.size();
+    h.numVertex = (int)c->vertices.size() - 1;
+    h.numFace = (int)c->faces.size() - 1;
     h.numEdge = (int)c->edges.size();
     c->pub.mFatness = fatness;
 
@@ -105,9 +132,8 @@ void build(ConvexImpl* c, const MeVector3* points, int count, MeReal fatness)
     c->shape.~btConvexHullShape();
     new (&c->shape) btConvexHullShape(hull.vertices.size() ? &hull.vertices[0][0] : nullptr, hull.vertices.size(),
                                       sizeof(btVector3));
+    // No polyhedral features: Bullet's hull clipping for them ignores the margin, so fatness would be lost.
     c->shape.setMargin(fatness);
-    if (hull.faces.size() > 0)
-        c->shape.initializePolyhedralFeatures();
 }
 
 McdConvexMeshID create(McdFramework* frame, const MeVector3* points, int count, MeReal fatness)
@@ -124,19 +150,6 @@ std::vector<std::array<MeReal, 3>> hullPoints(const McdConvexHull* poly)
     for (size_t i = 0; i < points.size(); ++i)
         std::copy(poly->vertex[i].position, poly->vertex[i].position + 3, points[i].data());
     return points;
-}
-
-void localSupport(ConvexImpl* c, const btVector3& dir, btVector3& out)
-{
-    btScalar best = -MEINFINITY;
-    for (const McdCnvVertex& v : c->vertices)
-        if (dir.dot(toBt(v.position)) > best)
-        {
-            best = dir.dot(toBt(v.position));
-            out = toBt(v.position);
-        }
-    if (dir.length2() > 0)
-        out += dir.normalized() * c->pub.mFatness;
 }
 
 } // namespace
@@ -204,14 +217,13 @@ int MEAPI McdConvexMeshGetPolygonCount(McdConvexMeshID g)
 
 int MEAPI McdConvexMeshGetPolygonVertexCount(McdConvexMeshID g, int polyID)
 {
-    ConvexImpl* c = get(g);
-    return c->faceStart[polyID + 1] - c->faceStart[polyID];
+    return faceEdgeCount(get(g), polyID);
 }
 
 const MeReal* MEAPI McdConvexMeshGetPolygonVertexPtr(McdConvexMeshID g, int polyID, int vertexID)
 {
     ConvexImpl* c = get(g);
-    return c->vertices[c->faceVertices[c->faceStart[polyID] + vertexID]].position;
+    return c->vertices[faceEdge(c, polyID, vertexID).fromVert].position;
 }
 
 void MEAPI McdConvexMeshGetPolygonVertex(McdConvexMeshID g, int polyID, int vertexID, MeVector3 v)
@@ -228,10 +240,7 @@ void MEAPI McdConvexMeshGetPolygonNormal(McdConvexMeshID g, int polyID, MeVector
 
 void MEAPI McdConvexMeshUpdateAABB(McdGeometryInstanceID ins, MeMatrix4 finalTM, MeBool)
 {
-    btVector3 lo, hi;
-    get(ins->mGeometry)->shape.getAabb(toBtTransform(&finalTM[0][0]), lo, hi);
-    fromBt(lo, ins->min);
-    fromBt(hi, ins->max);
+    mcdShapeAABB(ins, finalTM);
 }
 
 void MEAPI McdConvexMeshGetBSphere(McdGeometryID g, MeVector3 center, MeReal* radius)
@@ -249,9 +258,7 @@ void MEAPI McdConvexMeshMaximumPoint(McdGeometryInstanceID ins, MeReal* const in
 MeReal MEAPI McdConvexMeshMaximumPointNew(McdGeometryInstanceID ins, const MeVector3 inDir, MeVector3 outPoint)
 {
     btTransform t = toBtTransform(ins->mTM);
-    btVector3 local(0, 0, 0);
-    localSupport(get(ins->mGeometry), t.getBasis().transpose() * toBt(inDir), local);
-    btVector3 world = t * local;
+    btVector3 world = t * get(ins->mGeometry)->shape.localGetSupportingVertex(t.getBasis().transpose() * toBt(inDir));
     fromBt(world, outPoint);
     return world.dot(toBt(inDir));
 }
@@ -269,14 +276,13 @@ MeI16 MEAPI McdConvexMeshGetMassProperties(McdConvexMeshID mesh, MeMatrix4 relTM
                            a.z() * b.x(), a.z() * b.y(), a.z() * b.z());
     };
     // Fan each face into tetrahedra with the reference point as apex.
-    for (size_t f = 0; f + 1 < c->faceStart.size(); ++f)
+    for (int f = 0; f < c->pub.mHull.numFace; ++f)
     {
-        const int* v = &c->faceVertices[c->faceStart[f]];
-        int n = c->faceStart[f + 1] - c->faceStart[f];
-        btVector3 a = toBt(c->vertices[v[0]].position) - ref;
-        for (int i = 1; i + 1 < n; ++i)
+        auto corner = [c, f, &ref](int i) { return toBt(c->vertices[faceEdge(c, f, i).fromVert].position) - ref; };
+        btVector3 a = corner(0);
+        for (int i = 1; i + 1 < faceEdgeCount(c, f); ++i)
         {
-            btVector3 b = toBt(c->vertices[v[i]].position) - ref, d = toBt(c->vertices[v[i + 1]].position) - ref;
+            btVector3 b = corner(i), d = corner(i + 1);
             btScalar det = a.dot(b.cross(d));
             total += det / 6;
             moment += (a + b + d) * (det / 24);

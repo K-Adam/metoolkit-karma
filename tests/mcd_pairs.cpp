@@ -96,6 +96,20 @@ int main()
     ph = update(space, pairs, &pair);
     CHECK(ph.hello == 0 && ph.staying == 0 && ph.goodbye == 0);
 
+    // A pair pending goodbye lets go of its model when the model leaves the space, as the model may be destroyed
+    // before the application says goodbye.
+    place(tmB, (MeReal)1.8);
+    ph = update(space, pairs, &pair);
+    CHECK(ph.hello == 1 && pair->m_cachedData);
+    place(tmB, 10);
+    McdSpaceUpdateAll(space);
+    McdSpacePairIteratorBegin(space, &it);
+    McdSpaceGetPairs(space, &it, pairs);
+    CHECK(McdModelPairContainerGetGoodbyeCount(pairs) == 1 && pairs->array[pairs->goodbyeFirst] == pair);
+    McdSpaceRemoveModel(b);
+    CHECK(pair->phase == kMcdFFStateGoodbye && !pair->m_cachedData);
+    McdGoodbyeEach(pairs);
+
     McdSpaceRemoveModel(a);
     McdSpaceRemoveModel(b);
     McdModelDestroy(a);

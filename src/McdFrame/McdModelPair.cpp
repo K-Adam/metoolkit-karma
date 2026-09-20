@@ -11,6 +11,8 @@ McdModelPairID MEAPI McdModelPairCreate(McdModelID m1, McdModelID m2)
 
 void MEAPI McdModelPairDestroy(McdModelPairID p)
 {
+    // Releases the narrowphase state of a pair the application never said goodbye to.
+    McdGoodbye(p);
     delete p;
 }
 

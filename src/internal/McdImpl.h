@@ -20,11 +20,36 @@ typedef std::pair<McdModelID, McdModelID> McdModelKey;
 
 inline McdModelKey mcdUnorderedKey(McdModelID a, McdModelID b) { return a < b ? McdModelKey(a, b) : McdModelKey(b, a); }
 
+inline MeReal mcdPairTolerance(McdModelPair* p)
+{
+    return McdModelGetContactTolerance(p->model1) + McdModelGetContactTolerance(p->model2);
+}
+
+inline MeReal mcdContactTolerance(const btCollisionObject* o)
+{
+    return o->getUserPointer() ? McdModelGetContactTolerance(static_cast<McdModelID>(o->getUserPointer())) : 0;
+}
+
+// Bullet drops points beyond the manifold's breaking threshold, but Karma reports contacts out to the summed
+// contact tolerance of both models.
+struct McdDispatcher : btCollisionDispatcher
+{
+    using btCollisionDispatcher::btCollisionDispatcher;
+
+    btPersistentManifold* getNewManifold(const btCollisionObject* b0, const btCollisionObject* b1) override
+    {
+        btPersistentManifold* m = btCollisionDispatcher::getNewManifold(b0, b1);
+        m->setContactBreakingThreshold(
+            btMax(m->getContactBreakingThreshold(), mcdContactTolerance(b0) + mcdContactTolerance(b1)));
+        return m;
+    }
+};
+
 struct McdFrameworkImpl
 {
     McdFramework pub{};
     btDefaultCollisionConfiguration config;
-    btCollisionDispatcher dispatcher{&config};
+    McdDispatcher dispatcher{&config};
     // Stands in for geometry without a Bullet shape, so its models can still live in a space.
     btEmptyShape emptyShape;
     std::vector<McdGeometryVTable> vtables;
@@ -38,6 +63,14 @@ inline McdFrameworkImpl* impl(McdFrameworkID f) { return reinterpret_cast<McdFra
 
 void mcdRegisterShapeFn(McdFrameworkID frame, int typeId, McdShapeFn fn);
 btCollisionShape* mcdGeometryShape(McdGeometryID g);
+
+inline void mcdShapeAABB(McdGeometryInstanceID ins, const MeVector4* finalTM)
+{
+    btVector3 lo, hi;
+    mcdGeometryShape(ins->mGeometry)->getAabb(toBtTransform(finalTM), lo, hi);
+    fromBt(lo, ins->min);
+    fromBt(hi, ins->max);
+}
 
 // Child instances of aggregate models, allocated by the aggregate and freed with the model.
 struct McdChildInstance
@@ -85,9 +118,9 @@ inline void mcdAddContact(McdIntersectResult* r, const btVector3& position, cons
 
 btCollisionObjectWrapper mcdWrap(McdModelID m);
 
-// Copies an algorithm's manifold points into r with normals pointing towards object1, up to limit, and returns
-// the sum of the normals added.
-btVector3 mcdAddManifoldContacts(btCollisionAlgorithm* algorithm, const btCollisionObject* object1,
+// Copies an algorithm's manifold points within tolerance into r with normals pointing towards object1, up to
+// limit, and returns the sum of the normals added.
+btVector3 mcdAddManifoldContacts(btCollisionAlgorithm* algorithm, const btCollisionObject* object1, MeReal tolerance,
                                  McdIntersectResult* r, int limit);
 
 struct _McdSpace
@@ -130,9 +163,7 @@ int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r);
 // Mass properties are reported for unit density: inertia is per unit mass and volume is returned separately.
 inline void mcdSetDiagonalInertia(MeMatrix4 relTM, MeMatrix3 inertia, MeReal ix, MeReal iy, MeReal iz)
 {
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c)
-            relTM[r][c] = r == c ? (MeReal)1 : (MeReal)0;
+    MeMatrix4TMMakeIdentity(relTM);
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             inertia[r][c] = 0;
@@ -184,7 +215,7 @@ inline McdPlanePair mcdPlanePair(McdModelPair* p, McdIntersectResult* r)
     pp.n = pt.getBasis().getColumn(2);
     pp.origin = pt.getOrigin();
     pp.contactNormal = planeFirst ? -pp.n : pp.n;
-    pp.tolerance = McdModelGetContactTolerance(shape) + McdModelGetContactTolerance(plane);
+    pp.tolerance = mcdPairTolerance(p);
     pp.limit = mcdContactLimit(p, r);
     pp.shape = McdModelGetGeometry(shape);
     return pp;

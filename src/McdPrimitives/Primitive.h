@@ -38,10 +38,7 @@ struct Primitive
     static void MEAPI updateAABB(McdGeometryInstanceID ins, MeMatrix4 finalTM, MeBool tight)
     {
         (void)tight;
-        btVector3 lo, hi;
-        shape(ins->mGeometry)->getAabb(toBtTransform(&finalTM[0][0]), lo, hi);
-        fromBt(lo, ins->min);
-        fromBt(hi, ins->max);
+        mcdShapeAABB(ins, finalTM);
     }
 
     static void MEAPI getBSphere(McdGeometryID g, MeVector3 center, MeReal* radius)

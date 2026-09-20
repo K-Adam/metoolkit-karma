@@ -2,6 +2,8 @@
 #include <cstring>
 #include <vector>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 namespace {
@@ -26,20 +28,6 @@ void setInertia(MdtBody& p, const btMatrix3x3& i)
             rows[r][c] = i[r][c];
             invRows[r][c] = inv[r][c];
         }
-}
-
-void addVec(MeReal* acc, MeReal x, MeReal y, MeReal z)
-{
-    acc[0] += x;
-    acc[1] += y;
-    acc[2] += z;
-}
-
-void copy3(MeReal* out, const MeReal* in)
-{
-    out[0] = in[0];
-    out[1] = in[1];
-    out[2] = in[2];
 }
 
 void setFlag(MdtBodyID b, int flag, bool on)
@@ -75,12 +63,15 @@ std::vector<MdtConstraintID> enabledConstraints(MdtBodyID b)
 
 void destroyIf(MdtBodyID b, bool contactsOnly)
 {
-    MdtWorldImpl* w = impl(b->world);
-    for (size_t i = w->constraints.size(); i-- > 0;)
+    // Destroying a group also destroys its contacts, wherever they are in the list.
+    std::vector<MdtConstraintID>& all = impl(b->world)->constraints;
+    for (;;)
     {
-        MdtConstraintID c = w->constraints[i];
-        if (touches(c, b) && (!contactsOnly || isContact(c)))
-            MdtConstraintDestroy(c);
+        auto it = std::find_if(all.begin(), all.end(),
+                               [&](MdtConstraintID c) { return touches(c, b) && (!contactsOnly || isContact(c)); });
+        if (it == all.end())
+            return;
+        MdtConstraintDestroy(*it);
     }
 }
 
@@ -279,9 +270,9 @@ void MEAPI MdtBodySetMass(const MdtBodyID b, const MeReal mass)
 
 void MEAPI MdtBodyGetInertiaTensor(const MdtBodyID b, MeMatrix3 i)
 {
-    copy3(i[0], b->keaBody.I0);
-    copy3(i[1], b->keaBody.I1);
-    copy3(i[2], b->keaBody.I2);
+    MeVector3Copy(i[0], b->keaBody.I0);
+    MeVector3Copy(i[1], b->keaBody.I1);
+    MeVector3Copy(i[2], b->keaBody.I2);
 }
 
 void MEAPI MdtBodySetInertiaTensor(const MdtBodyID b, const MeMatrix3 i)
@@ -296,7 +287,7 @@ void MEAPI MdtBodySetSphericalInertiaTensor(const MdtBodyID b, const MeReal i)
 
 void MEAPI MdtBodyGetPosition(const MdtBodyID b, MeVector3 p)
 {
-    copy3(p, b->bodyTM[3]);
+    MeVector3Copy(p, b->bodyTM[3]);
 }
 
 void MEAPI MdtBodySetPosition(const MdtBodyID b, const MeReal x, const MeReal y, const MeReal z)
@@ -320,7 +311,7 @@ void MEAPI MdtBodySetQuaternion(const MdtBodyID b, const MeReal qw, const MeReal
 void MEAPI MdtBodyGetOrientation(const MdtBodyID b, MeMatrix3 R)
 {
     for (int r = 0; r < 3; ++r)
-        copy3(R[r], b->bodyTM[r]);
+        MeVector3Copy(R[r], b->bodyTM[r]);
 }
 
 void MEAPI MdtBodySetOrientation(const MdtBodyID b, const MeMatrix3 R)
@@ -328,13 +319,13 @@ void MEAPI MdtBodySetOrientation(const MdtBodyID b, const MeMatrix3 R)
     MeMatrix4 tm;
     std::memcpy(tm, b->bodyTM, sizeof(MeMatrix4));
     for (int r = 0; r < 3; ++r)
-        copy3(tm[r], R[r]);
+        MeVector3Copy(tm[r], R[r]);
     setRotation(*b, toBtTransform(tm).getBasis());
 }
 
 void MEAPI MdtBodyGetLinearVelocity(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.vel);
+    MeVector3Copy(v, b->keaBody.vel);
 }
 
 MeReal* MEAPI MdtBodyGetLinearVelocityPtr(const MdtBodyID b)
@@ -351,7 +342,7 @@ void MEAPI MdtBodySetLinearVelocity(const MdtBodyID b, const MeReal dx, const Me
 
 void MEAPI MdtBodyGetAngularVelocity(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.velrot);
+    MeVector3Copy(v, b->keaBody.velrot);
 }
 
 MeReal* MEAPI MdtBodyGetAngularVelocityPtr(const MdtBodyID b)
@@ -374,17 +365,17 @@ void MEAPI MdtBodyGetVelocityAtPoint(const MdtBodyID b, MeVector3 p, MeVector3 v
 
 void MEAPI MdtBodyGetLinearAcceleration(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.accel);
+    MeVector3Copy(v, b->keaBody.accel);
 }
 
 void MEAPI MdtBodyGetAngularAcceleration(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.accelrot);
+    MeVector3Copy(v, b->keaBody.accelrot);
 }
 
 void MEAPI MdtBodyGetFastSpinAxis(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.fastSpinAxis);
+    MeVector3Copy(v, b->keaBody.fastSpinAxis);
 }
 
 // Bullet integrates rotation with the exponential map, which already handles fast spin, so the axis is
@@ -452,12 +443,12 @@ MeBool MEAPI MdtBodyCoriolisForceIsEnabled(const MdtBodyID b)
 
 void MEAPI MdtBodyGetForce(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.force);
+    MeVector3Copy(v, b->keaBody.force);
 }
 
 void MEAPI MdtBodyGetTorque(const MdtBodyID b, MeVector3 v)
 {
-    copy3(v, b->keaBody.torque);
+    MeVector3Copy(v, b->keaBody.torque);
 }
 
 MeReal MEAPI MdtBodyGetKineticEnergy(const MdtBodyID b)
@@ -492,7 +483,7 @@ void MEAPI MdtBodySetCenterOfMassRelativeTransform(const MdtBodyID b, const MeMa
 
 void MEAPI MdtBodyGetCenterOfMassPosition(const MdtBodyID b, MeVector3 pos)
 {
-    copy3(pos, b->comTM[3]);
+    MeVector3Copy(pos, b->comTM[3]);
 }
 
 void MEAPI MdtBodySetCenterOfMassPosition(const MdtBodyID b, const MeVector3 pos)
@@ -505,12 +496,12 @@ void MEAPI MdtBodySetCenterOfMassPosition(const MdtBodyID b, const MeVector3 pos
 
 void MEAPI MdtBodyGetCenterOfMassRelativePosition(const MdtBodyID b, MeVector3 pos)
 {
-    copy3(pos, b->com);
+    MeVector3Copy(pos, b->com);
 }
 
 void MEAPI MdtBodySetCenterOfMassRelativePosition(const MdtBodyID b, const MeVector3 pos)
 {
-    copy3(b->com, pos);
+    MeVector3Copy(b->com, pos);
     b->useCom = pos[0] != 0 || pos[1] != 0 || pos[2] != 0;
     mdtBodyUpdateCom(*b);
 }
@@ -588,34 +579,41 @@ void MEAPI MdtBodyResetImpulses(const MdtBodyID b)
 
 void MEAPI MdtBodyAddForce(const MdtBodyID b, const MeReal fx, const MeReal fy, const MeReal fz)
 {
-    addVec(b->keaBody.force, fx, fy, fz);
+    const MeVector3 f = {fx, fy, fz};
+    MeVector3Add(b->keaBody.force, b->keaBody.force, f);
 }
 
 void MEAPI MdtBodyAddTorque(const MdtBodyID b, const MeReal tx, const MeReal ty, const MeReal tz)
 {
-    addVec(b->keaBody.torque, tx, ty, tz);
+    const MeVector3 t = {tx, ty, tz};
+    MeVector3Add(b->keaBody.torque, b->keaBody.torque, t);
 }
 
 void MEAPI MdtBodyAddForceAtPosition(const MdtBodyID b, const MeReal fx, const MeReal fy, const MeReal fz,
                                      const MeReal px, const MeReal py, const MeReal pz)
 {
-    btVector3 t = armFromCom(b, px, py, pz).cross(btVector3(fx, fy, fz));
-    addVec(b->keaBody.force, fx, fy, fz);
-    addVec(b->keaBody.torque, t.x(), t.y(), t.z());
+    const MeVector3 f = {fx, fy, fz};
+    MeVector3 t;
+    fromBt(armFromCom(b, px, py, pz).cross(toBt(f)), t);
+    MeVector3Add(b->keaBody.force, b->keaBody.force, f);
+    MeVector3Add(b->keaBody.torque, b->keaBody.torque, t);
 }
 
 void MEAPI MdtBodyAddImpulse(const MdtBodyID b, const MeReal ix, const MeReal iy, const MeReal iz)
 {
-    addVec(b->impulseLinear, ix, iy, iz);
+    const MeVector3 i = {ix, iy, iz};
+    MeVector3Add(b->impulseLinear, b->impulseLinear, i);
     b->impulseAdded = 1;
 }
 
 void MEAPI MdtBodyAddImpulseAtPosition(const MdtBodyID b, const MeReal ix, const MeReal iy, const MeReal iz,
                                        const MeReal px, const MeReal py, const MeReal pz)
 {
-    btVector3 t = armFromCom(b, px, py, pz).cross(btVector3(ix, iy, iz));
-    addVec(b->impulseLinear, ix, iy, iz);
-    addVec(b->impulseAngular, t.x(), t.y(), t.z());
+    const MeVector3 i = {ix, iy, iz};
+    MeVector3 t;
+    fromBt(armFromCom(b, px, py, pz).cross(toBt(i)), t);
+    MeVector3Add(b->impulseLinear, b->impulseLinear, i);
+    MeVector3Add(b->impulseAngular, b->impulseAngular, t);
     b->impulseAdded = 1;
 }
 

@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 #include <MeHash.h>
@@ -10,6 +11,14 @@
 static void* key(std::intptr_t i)
 {
     return reinterpret_cast<void*>(i);
+}
+
+static int keysFreed = 0;
+
+static void MEAPI freeKey(void* const k)
+{
+    ++keysFreed;
+    std::free(k);
 }
 
 int main()
@@ -32,6 +41,20 @@ int main()
     CHECK(MeHashDelete("alpha", h) == &x);
     CHECK(MeHashLookup("alpha", h) == NULL);
     MeHashDestroy(h);
+
+    MeHash* owned = MeHashCreate(5);
+    MeHashSetKeyFreeFunc(owned, freeKey);
+    char* first = static_cast<char*>(std::malloc(4));
+    char* second = static_cast<char*>(std::malloc(4));
+    std::strcpy(first, "key");
+    std::strcpy(second, "key");
+    MeHashInsert(first, &x, owned);
+    CHECK(MeHashInsert(second, &y, owned) == &x);
+    CHECK(keysFreed == 1 && MeHashPopulation(owned) == 1);
+    MeHashInitIterator(&it, owned);
+    CHECK(MeHashGetDatum(&it) == &y && it.bucket->key == second);
+    MeHashDestroy(owned);
+    CHECK(keysFreed == 2);
 
     MeHash* ints = MeHashCreate(3);
     MeHashSetHashFunc(ints, MeHashInt);

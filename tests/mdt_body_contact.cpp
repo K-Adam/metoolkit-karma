@@ -75,6 +75,11 @@ int main()
     MdtBodyGetLinearVelocity(a, v);
     CHECK_NEAR(v[0], 4.97, 1e-4);
     CHECK_NEAR(MdtContactGroupGetNormalForce(g), 10, 0.2);
+    MdtConstraintGetForce(MdtContactGroupQuaConstraint(g), 0, v);
+    CHECK_NEAR(v[0], -3, 1e-3);
+    CHECK_NEAR(v[1], 10, 0.2);
+    CHECK(MdtConstraintGetRowCount(MdtContactQuaConstraint(k)) == 3);
+    CHECK(MdtConstraintGetRowCount(MdtContactGroupQuaConstraint(g)) == 3);
 
     // Option bits follow the values, as in the original.
     MdtContactParamsSetSlip(p, (MeReal)0.1);
@@ -86,6 +91,17 @@ int main()
     MdtContactReset(k);
     MdtContactGetDirection(k, v);
     CHECK(v[0] == 1 && p->options == 0 && MdtContactGetContactGroup(k) == g);
+
+    // A contact appended to a group is destroyed with it and leaves nothing behind for the next step.
+    int total = MdtWorldGetTotalConstraints(world);
+    MdtContactID loose = MdtContactCreate(world);
+    MdtContactGroupAppendContact(g, loose);
+    CHECK(MdtWorldGetTotalConstraints(world) == total + 1);
+    CHECK(MdtConstraintGetRowCount(MdtContactGroupQuaConstraint(g)) == 6);
+    MdtWorldStep(world, (MeReal)0.01);
+    MdtContactGroupDestroy(g);
+    CHECK(MdtWorldGetTotalConstraints(world) == total - 2);
+    MdtWorldStep(world, (MeReal)0.01);
 
     MeMatrix3 I;
     MdtMakeInertiaTensorBox(2, 1, 2, 3, I);

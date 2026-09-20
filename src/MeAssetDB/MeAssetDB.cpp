@@ -9,23 +9,17 @@
 
 #include <MeAssetDB.h>
 #include <MdtDefaults.h>
+#include <MeMath.h>
+
+#include "StringCopy.h"
 
 namespace {
 
 const int kHashSize = 64;
 
-char* duplicate(const char* s)
-{
-    if (!s)
-        return nullptr;
-    char* copy = static_cast<char*>(std::malloc(std::strlen(s) + 1));
-    std::strcpy(copy, s);
-    return copy;
-}
-
 void assign(char*& field, const char* value)
 {
-    char* copy = duplicate(value);
+    char* copy = duplicateString(value);
     std::free(field);
     field = copy;
 }
@@ -35,19 +29,12 @@ bool same(const char* a, const char* b)
     return a && b && std::strcmp(a, b) == 0;
 }
 
-void identity(MeMatrix4 tm)
-{
-    for (int i = 0; i < 4; ++i)
-        for (int j = 0; j < 4; ++j)
-            tm[i][j] = i == j ? 1.0f : 0.0f;
-}
-
 void copyMatrix(MeMatrix4 to, const MeMatrix4Ptr from)
 {
     if (from)
-        std::memcpy(to, from, sizeof(MeMatrix4));
+        MeMatrix4Copy(to, from);
     else
-        identity(to);
+        MeMatrix4TMMakeIdentity(to);
 }
 
 // Lists are circular with a sentinel whose current is null, which also ends iteration.
@@ -111,21 +98,87 @@ void sortedByName(const Node* nil, T** out)
     std::copy(all.begin(), all.end(), out);
 }
 
-// Only the item a name maps to may remove it, so a duplicate name never unhashes another item.
 template <class T>
-void unhash(T* item, MeHash* table)
+struct Members;
+
+template <>
+struct Members<MeFGeometry>
 {
-    if (table && MeHashLookup(item->id, table) == item)
-        MeHashDelete(item->id, table);
+    static constexpr auto nil = &MeFAsset::nilGeometry;
+    static constexpr auto hash = &MeFAsset::nameToGeometry;
+    static constexpr auto count = &MeFAsset::geomCount;
+};
+
+template <>
+struct Members<MeFModel>
+{
+    static constexpr auto nil = &MeFAsset::nilModel;
+    static constexpr auto hash = &MeFAsset::nameToModel;
+    static constexpr auto count = &MeFAsset::modelCount;
+};
+
+template <>
+struct Members<MeFAssetPart>
+{
+    static constexpr auto nil = &MeFAsset::nilPart;
+    static constexpr auto hash = &MeFAsset::nameToPart;
+    static constexpr auto count = &MeFAsset::partCount;
+};
+
+template <>
+struct Members<MeFJoint>
+{
+    static constexpr auto nil = &MeFAsset::nilJoint;
+    static constexpr auto hash = &MeFAsset::nameToJoint;
+    static constexpr auto count = &MeFAsset::jointCount;
+};
+
+// A shared name maps to one item. When that item leaves the table another holder of the name takes the key,
+// so the bucket never keeps a key whose owner is gone.
+template <class T>
+void unhash(T* item)
+{
+    MeHash* names = item->asset->*Members<T>::hash;
+    if (MeHashLookup(item->id, names) != item)
+        return;
+    MeHashDelete(item->id, names);
+    for (T* other : items(item->asset->*Members<T>::nil))
+        if (other != item && same(other->id, item->id))
+        {
+            MeHashInsert(other->id, other, names);
+            return;
+        }
 }
 
 template <class T>
-void renameHashed(T* item, MeHash* table, const char* name)
+void insertItem(MeFAsset* asset, T* item)
 {
-    unhash(item, table);
+    append(asset->*Members<T>::nil, item);
+    item->asset = asset;
+    MeHashInsert(item->id, item, item->asset->*Members<T>::hash);
+    ++(asset->*Members<T>::count);
+}
+
+template <class T>
+void removeItem(T* item)
+{
+    MeFAsset* asset = item->asset;
+    if (!asset)
+        return;
+    unhash(item);
+    unlink(asset->*Members<T>::nil, item);
+    --(asset->*Members<T>::count);
+    item->asset = nullptr;
+}
+
+template <class T>
+void renameItem(T* item, const char* name)
+{
+    if (item->asset)
+        unhash(item);
     assign(item->id, name);
-    if (table)
-        MeHashInsert(item->id, item, table);
+    if (item->asset)
+        MeHashInsert(item->id, item, item->asset->*Members<T>::hash);
 }
 
 char* makeUnique(const MeHash* a, const MeHash* b, const char* name, char* buffer, int bufLength)
@@ -136,6 +189,29 @@ char* makeUnique(const MeHash* a, const MeHash* b, const char* name, char* buffe
         candidate = name + std::to_string(i);
     std::snprintf(buffer, bufLength, "%s", candidate.c_str());
     return buffer;
+}
+
+// Renames the items of source whose names dest already uses, and points the references in source at the new names.
+template <class T>
+void renameClashes(const MeFAsset* dest, MeFAsset* source, void(MEAPI* resolve)(MeFAsset*, const char*, const char*))
+{
+    MeHash* taken = dest->*Members<T>::hash;
+    char buffer[256];
+    for (T* item : items(source->*Members<T>::nil))
+        if (MeHashLookup(item->id, taken))
+        {
+            std::string old = item->id;
+            renameItem(item, makeUnique(taken, source->*Members<T>::hash, item->id, buffer, sizeof(buffer)));
+            if (resolve)
+                resolve(source, old.c_str(), item->id);
+        }
+}
+
+template <class Node, class T>
+void moveAll(const Node* nil, MeFAsset* dest, void(MEAPI* insert)(MeFAsset*, T*))
+{
+    for (T* item : items(nil))
+        insert(dest, item);
 }
 
 MeHash* table(const MeFAsset* a, MeHash* MeFAsset::*member)
@@ -186,25 +262,6 @@ void growMatrix(MeFAsset* a, int index)
 bool samePairAsset(const MeFAssetPart* p1, const MeFAssetPart* p2)
 {
     return p1->asset && p1->asset == p2->asset && p1->index >= 0 && p2->index >= 0;
-}
-
-void set3(MeVector3 v, MeReal x, MeReal y, MeReal z)
-{
-    v[0] = x;
-    v[1] = y;
-    v[2] = z;
-}
-
-void scale3(MeVector3 v, MeReal s)
-{
-    for (int i = 0; i < 3; ++i)
-        v[i] *= s;
-}
-
-void scaleTranslation(MeMatrix4 tm, MeReal s)
-{
-    for (int i = 0; i < 3; ++i)
-        tm[3][i] *= s;
 }
 
 struct Bounds
@@ -409,7 +466,7 @@ void MEAPI MeAssetDBRemoveAsset(MeFAsset* const asset)
 MeFAsset* MEAPI MeFAssetCreate(const char* const name, int id)
 {
     MeFAsset* a = static_cast<MeFAsset*>(std::calloc(1, sizeof(MeFAsset)));
-    a->name = duplicate(name);
+    a->name = duplicateString(name);
     a->id = id;
     a->nilGeometry = sentinel<MeFGeometryNode>();
     a->nilModel = sentinel<MeFModelNode>();
@@ -429,8 +486,8 @@ MeFAsset* MEAPI MeFAssetCreate(const char* const name, int id)
 MeFAsset* MEAPI MeFAssetCreateCopy(const MeFAsset* const asset, MeBool recurse)
 {
     MeFAsset* a = MeFAssetCreate(asset->name, asset->id);
-    a->graphicHint = duplicate(asset->graphicHint);
-    a->refPart = duplicate(asset->refPart);
+    a->graphicHint = duplicateString(asset->graphicHint);
+    a->refPart = duplicateString(asset->refPart);
     a->graphicScale = asset->graphicScale;
     a->massScale = asset->massScale;
     a->lengthScale = asset->lengthScale;
@@ -481,31 +538,10 @@ void MEAPI MeFAssetDestroy(MeFAsset* const asset)
 void MEAPI MeFAssetCombine(MeFAsset* const dest, MeFAsset* const source)
 {
     MeFAsset* tmp = MeFAssetCreateCopy(source, 1);
-    char buffer[256];
-    for (MeFGeometry* g : items(tmp->nilGeometry))
-        if (MeFAssetLookupGeometry(dest, g->id))
-        {
-            std::string old = g->id;
-            MeFGeometryRename(g, MeFAssetMakeGeometryNameUnique(dest, tmp, g->id, buffer, sizeof(buffer)));
-            MeFAssetResolveGeometryReferences(tmp, old.c_str(), g->id);
-        }
-    for (MeFModel* m : items(tmp->nilModel))
-        if (MeFAssetLookupModel(dest, m->id))
-        {
-            std::string old = m->id;
-            MeFModelRename(m, MeFAssetMakeModelNameUnique(dest, tmp, m->id, buffer, sizeof(buffer)));
-            MeFAssetResolveModelReferences(tmp, old.c_str(), m->id);
-        }
-    for (MeFAssetPart* p : items(tmp->nilPart))
-        if (MeFAssetLookupPart(dest, p->id))
-        {
-            std::string old = p->id;
-            MeFAssetPartRename(p, MeFAssetMakePartNameUnique(dest, tmp, p->id, buffer, sizeof(buffer)));
-            MeFAssetResolvePartReferences(tmp, old.c_str(), p->id);
-        }
-    for (MeFJoint* j : items(tmp->nilJoint))
-        if (MeFAssetLookupJoint(dest, j->id))
-            MeFJointRename(j, MeFAssetMakeJointNameUnique(dest, tmp, j->id, buffer, sizeof(buffer)));
+    renameClashes<MeFGeometry>(dest, tmp, MeFAssetResolveGeometryReferences);
+    renameClashes<MeFModel>(dest, tmp, MeFAssetResolveModelReferences);
+    renameClashes<MeFAssetPart>(dest, tmp, MeFAssetResolvePartReferences);
+    renameClashes<MeFJoint>(dest, tmp, nullptr);
 
     std::vector<std::pair<std::string, std::string>> disabled;
     auto parts = items(tmp->nilPart);
@@ -514,26 +550,10 @@ void MEAPI MeFAssetCombine(MeFAsset* const dest, MeFAsset* const source)
             if (!MeFAssetPartIsCollisionEnabled(p, q))
                 disabled.emplace_back(p->id, q->id);
 
-    for (MeFGeometry* g : items(tmp->nilGeometry))
-    {
-        MeFAssetRemoveGeometry(g);
-        MeFAssetInsertGeometry(dest, g);
-    }
-    for (MeFModel* m : items(tmp->nilModel))
-    {
-        MeFAssetRemoveModel(m);
-        MeFAssetInsertModel(dest, m);
-    }
-    for (MeFAssetPart* p : parts)
-    {
-        MeFAssetRemovePart(p);
-        MeFAssetInsertPart(dest, p);
-    }
-    for (MeFJoint* j : items(tmp->nilJoint))
-    {
-        MeFAssetRemoveJoint(j);
-        MeFAssetInsertJoint(dest, j);
-    }
+    moveAll(tmp->nilGeometry, dest, MeFAssetInsertGeometry);
+    moveAll(tmp->nilModel, dest, MeFAssetInsertModel);
+    moveAll(tmp->nilPart, dest, MeFAssetInsertPart);
+    moveAll(tmp->nilJoint, dest, MeFAssetInsertJoint);
     for (auto& d : disabled)
         MeFAssetPartEnableCollision(MeFAssetLookupPart(dest, &d.first[0]), MeFAssetLookupPart(dest, &d.second[0]), 0);
     MeFAssetDestroy(tmp);
@@ -727,72 +747,42 @@ void MEAPI MeFAssetSetGraphicScale(MeFAsset* const asset, MeReal scale)
 void MEAPI MeFAssetInsertGeometry(MeFAsset* const asset, MeFGeometry* const geometry)
 {
     MeFAssetRemoveGeometry(geometry);
-    append(asset->nilGeometry, geometry);
-    MeHashInsert(geometry->id, geometry, asset->nameToGeometry);
-    geometry->asset = asset;
-    ++asset->geomCount;
+    insertItem(asset, geometry);
 }
 
 void MEAPI MeFAssetRemoveGeometry(MeFGeometry* const geometry)
 {
-    MeFAsset* asset = geometry->asset;
-    if (!asset)
-        return;
-    unhash(geometry, asset->nameToGeometry);
-    unlink(asset->nilGeometry, geometry);
-    --asset->geomCount;
-    geometry->asset = nullptr;
+    removeItem(geometry);
 }
 
 void MEAPI MeFAssetInsertModel(MeFAsset* const asset, MeFModel* const model)
 {
     MeFAssetRemoveModel(model);
-    append(asset->nilModel, model);
-    MeHashInsert(model->id, model, asset->nameToModel);
-    model->asset = asset;
-    ++asset->modelCount;
+    insertItem(asset, model);
 }
 
 void MEAPI MeFAssetRemoveModel(MeFModel* const model)
 {
-    MeFAsset* asset = model->asset;
-    if (!asset)
-        return;
-    unhash(model, asset->nameToModel);
-    unlink(asset->nilModel, model);
-    --asset->modelCount;
-    model->asset = nullptr;
+    removeItem(model);
 }
 
 void MEAPI MeFAssetInsertJoint(MeFAsset* const asset, MeFJoint* const joint)
 {
     MeFAssetRemoveJoint(joint);
-    append(asset->nilJoint, joint);
-    MeHashInsert(joint->id, joint, asset->nameToJoint);
-    joint->asset = asset;
-    ++asset->jointCount;
+    insertItem(asset, joint);
 }
 
 void MEAPI MeFAssetRemoveJoint(MeFJoint* const joint)
 {
-    MeFAsset* asset = joint->asset;
-    if (!asset)
-        return;
-    unhash(joint, asset->nameToJoint);
-    unlink(asset->nilJoint, joint);
-    --asset->jointCount;
-    joint->asset = nullptr;
+    removeItem(joint);
 }
 
 void MEAPI MeFAssetInsertPart(MeFAsset* const asset, MeFAssetPart* const part)
 {
     MeFAssetRemovePart(part);
-    append(asset->nilPart, part);
-    MeHashInsert(part->id, part, asset->nameToPart);
-    part->asset = asset;
+    insertItem(asset, part);
     part->index = MeIDPoolRequestID(asset->disabledColIndexPool);
     growMatrix(asset, part->index);
-    ++asset->partCount;
 }
 
 void MEAPI MeFAssetRemovePart(MeFAssetPart* const part)
@@ -802,10 +792,7 @@ void MEAPI MeFAssetRemovePart(MeFAssetPart* const part)
         return;
     MeFAssetPartEnableAllCollisions(part);
     MeIDPoolReturnID(asset->disabledColIndexPool, part->index);
-    unhash(part, asset->nameToPart);
-    unlink(asset->nilPart, part);
-    --asset->partCount;
-    part->asset = nullptr;
+    removeItem(part);
     part->index = -1;
 }
 
@@ -881,7 +868,7 @@ void MEAPI MeFAssetSetLengthScale(MeFAsset* const asset, MeReal scale)
 MeFGeometry* MEAPI MeFGeometryCreate(const char* const name)
 {
     MeFGeometry* g = static_cast<MeFGeometry*>(std::calloc(1, sizeof(MeFGeometry)));
-    g->id = duplicate(name);
+    g->id = duplicateString(name);
     g->nilPrimitive = sentinel<MeFPrimitiveNode>();
     g->graphicScale = 1;
     return g;
@@ -890,7 +877,7 @@ MeFGeometry* MEAPI MeFGeometryCreate(const char* const name)
 MeFGeometry* MEAPI MeFGeometryCreateCopy(const MeFGeometry* const geometry, MeBool recurse)
 {
     MeFGeometry* g = MeFGeometryCreate(geometry->id);
-    g->graphicHint = duplicate(geometry->graphicHint);
+    g->graphicHint = duplicateString(geometry->graphicHint);
     g->graphicScale = geometry->graphicScale;
     std::memcpy(g->graphicOffset, geometry->graphicOffset, sizeof(MeVector3));
     if (recurse)
@@ -957,7 +944,7 @@ int MEAPI MeFGeometryGetPrimitiveCount(const MeFGeometry* const geometry)
 
 void MEAPI MeFGeometryRename(MeFGeometry* const geometry, const char* const name)
 {
-    renameHashed(geometry, table(geometry->asset, &MeFAsset::nameToGeometry), name);
+    renameItem(geometry, name);
 }
 
 void MEAPI MeFGeometrySetGraphicHint(MeFGeometry* const geometry, const char* const hint)
@@ -1004,7 +991,7 @@ void MEAPI MeFGeometryScale(MeFGeometry* const geometry, MeReal scale)
 {
     MeFGeometryScaleNoGraphic(geometry, scale);
     geometry->graphicScale *= scale;
-    scale3(geometry->graphicOffset, scale);
+    MeVector3Scale(geometry->graphicOffset, scale);
 }
 
 /* primitive */
@@ -1012,9 +999,9 @@ void MEAPI MeFGeometryScale(MeFGeometry* const geometry, MeReal scale)
 MeFPrimitive* MEAPI MeFPrimitiveCreate(const char* const name, MeFPrimitiveType type)
 {
     MeFPrimitive* p = static_cast<MeFPrimitive*>(std::calloc(1, sizeof(MeFPrimitive)));
-    p->id = duplicate(name);
+    p->id = duplicateString(name);
     p->type = type;
-    identity(p->tm);
+    MeMatrix4TMMakeIdentity(p->tm);
     return p;
 }
 
@@ -1188,10 +1175,10 @@ void MEAPI MeFPrimitiveSetTransform(MeFPrimitive* const p, const MeMatrix4Ptr tm
 
 void MEAPI MeFPrimitiveScale(MeFPrimitive* const p, MeReal scale)
 {
-    scale3(p->dims, scale);
+    MeVector3Scale(p->dims, scale);
     for (int i = 0; i < p->nVertices; ++i)
-        scale3(p->vertices[i], scale);
-    scaleTranslation(p->tm, scale);
+        MeVector3Scale(p->vertices[i], scale);
+    MeVector3Scale(p->tm[3], scale);
 }
 
 /* model */
@@ -1199,7 +1186,7 @@ void MEAPI MeFPrimitiveScale(MeFPrimitive* const p, MeReal scale)
 MeFModel* MEAPI MeFModelCreate(const char* const name, MeFModelType type)
 {
     MeFModel* m = static_cast<MeFModel*>(std::calloc(1, sizeof(MeFModel)));
-    m->id = duplicate(name);
+    m->id = duplicateString(name);
     m->type = type;
     m->mass = MDTBODY_DEFAULT_MASS;
     m->density = 1;
@@ -1313,7 +1300,7 @@ MeBool MEAPI MeFModelIsFastSpinAxisEnabled(const MeFModel* const model)
 
 void MEAPI MeFModelRename(MeFModel* const model, const char* const name)
 {
-    renameHashed(model, table(model->asset, &MeFAsset::nameToModel), name);
+    renameItem(model, name);
 }
 
 void MEAPI MeFModelSetType(MeFModel* const model, MeFModelType type)
@@ -1382,7 +1369,7 @@ void MEAPI MeFModelEnableFastSpinAxis(MeFModel* const model, MeBool b)
 // Lengths scale and mass is kept, so inertia scales with the square.
 void MEAPI MeFModelScale(MeFModel* const model, MeReal scale)
 {
-    scale3(model->mass_offset, scale);
+    MeVector3Scale(model->mass_offset, scale);
     for (MeReal& i : model->inertia)
         i *= scale * scale;
 }
@@ -1392,8 +1379,8 @@ void MEAPI MeFModelScale(MeFModel* const model, MeReal scale)
 MeFAssetPart* MEAPI MeFAssetPartCreate(const char* const name, MeFModel* const model, const MeMatrix4Ptr relTM)
 {
     MeFAssetPart* p = static_cast<MeFAssetPart*>(std::calloc(1, sizeof(MeFAssetPart)));
-    p->id = duplicate(name);
-    p->model = duplicate(model ? model->id : nullptr);
+    p->id = duplicateString(name);
+    p->model = duplicateString(model ? model->id : nullptr);
     copyMatrix(p->tm, relTM);
     p->graphicScale = 1;
     p->index = -1;
@@ -1403,9 +1390,9 @@ MeFAssetPart* MEAPI MeFAssetPartCreate(const char* const name, MeFModel* const m
 MeFAssetPart* MEAPI MeFAssetPartCreateCopy(const MeFAssetPart* const part, MeBool)
 {
     MeFAssetPart* p = MeFAssetPartCreate(part->id, nullptr, const_cast<MeMatrix4Ptr>(part->tm));
-    p->model = duplicate(part->model);
-    p->graphicHint = duplicate(part->graphicHint);
-    p->parent = duplicate(part->parent);
+    p->model = duplicateString(part->model);
+    p->graphicHint = duplicateString(part->graphicHint);
+    p->parent = duplicateString(part->parent);
     p->graphicScale = part->graphicScale;
     std::memcpy(p->graphicOffset, part->graphicOffset, sizeof(MeVector3));
     return p;
@@ -1491,7 +1478,7 @@ int MEAPI MeFAssetPartGetDisabledCollisionIndex(const MeFAssetPart* const part)
 
 void MEAPI MeFAssetPartRename(MeFAssetPart* const part, const char* const name)
 {
-    renameHashed(part, table(part->asset, &MeFAsset::nameToPart), name);
+    renameItem(part, name);
 }
 
 void MEAPI MeFAssetPartSetGraphicHint(MeFAssetPart* const part, const char* const hint)
@@ -1513,9 +1500,9 @@ void MEAPI MeFAssetPartSetGraphicOffset(MeFAssetPart* const part, MeReal dx, MeR
 
 void MEAPI MeFAssetPartScale(MeFAssetPart* const part, MeReal scale)
 {
-    scaleTranslation(part->tm, scale);
+    MeVector3Scale(part->tm[3], scale);
     part->graphicScale *= scale;
-    scale3(part->graphicOffset, scale);
+    MeVector3Scale(part->graphicOffset, scale);
 }
 
 void MEAPI MeFAssetPartSetTransform(MeFAssetPart* const part, const MeMatrix4Ptr tm)
@@ -1576,9 +1563,9 @@ void MEAPI MeFJointSetGenericDefaults(MeFJoint* const j)
 {
     for (int i = 0; i < 2; ++i)
     {
-        set3(j->pos[i], 0, 0, 0);
-        set3(j->pax[i], 1, 0, 0);
-        set3(j->oax[i], 0, 1, 0);
+        MeVector3Set(j->pos[i], 0, 0, 0);
+        MeVector3Set(j->pax[i], 1, 0, 0);
+        MeVector3Set(j->oax[i], 0, 1, 0);
     }
 }
 
@@ -1604,7 +1591,7 @@ void MEAPI MeFJointSetPerTypeDefaults(MeFJoint* const j)
 MeFJoint* MEAPI MeFJointCreate(const char* const name, MeFJointType type)
 {
     MeFJoint* j = static_cast<MeFJoint*>(std::calloc(1, sizeof(MeFJoint)));
-    j->id = duplicate(name);
+    j->id = duplicateString(name);
     j->type = type;
     MeFJointSetGenericDefaults(j);
     MeFJointSetPerTypeDefaults(j);
@@ -1636,8 +1623,8 @@ MeFJoint* MEAPI MeFJointCreateCopy(const MeFJoint* const joint, MeBool)
 {
     MeFJoint* j = MeFJointCreate(joint->id, joint->type);
     MeFJointCopy(j, joint, 1);
-    j->part[0] = duplicate(joint->part[0]);
-    j->part[1] = duplicate(joint->part[1]);
+    j->part[0] = duplicateString(joint->part[0]);
+    j->part[1] = duplicateString(joint->part[1]);
     return j;
 }
 
@@ -1695,22 +1682,22 @@ void MEAPI MeFJointSetType(MeFJoint* const fj, MeFJointType type)
 
 void MEAPI MeFJointRename(MeFJoint* const joint, const char* const name)
 {
-    renameHashed(joint, table(joint->asset, &MeFAsset::nameToJoint), name);
+    renameItem(joint, name);
 }
 
 void MEAPI MeFJointSetPosition(MeFJoint* const joint, int index, MeReal x, MeReal y, MeReal z)
 {
-    set3(joint->pos[index], x, y, z);
+    MeVector3Set(joint->pos[index], x, y, z);
 }
 
 void MEAPI MeFJointSetPrimaryAxis(MeFJoint* const joint, int index, MeReal x, MeReal y, MeReal z)
 {
-    set3(joint->pax[index], x, y, z);
+    MeVector3Set(joint->pax[index], x, y, z);
 }
 
 void MEAPI MeFJointSetOrthogonalAxis(MeFJoint* const joint, int index, MeReal x, MeReal y, MeReal z)
 {
-    set3(joint->oax[index], x, y, z);
+    MeVector3Set(joint->oax[index], x, y, z);
 }
 
 void MEAPI MeFJointSetPart(MeFJoint* const j, const MeFAssetPart* const part, int index)
@@ -1726,8 +1713,8 @@ void MEAPI MeFJointSetPartByName(MeFJoint* const j, const char* const part, int 
 // Positions are lengths, and so are the limits of a prismatic joint.
 void MEAPI MeFJointScale(MeFJoint* const joint, MeReal scale)
 {
-    scale3(joint->pos[0], scale);
-    scale3(joint->pos[1], scale);
+    MeVector3Scale(joint->pos[0], scale);
+    MeVector3Scale(joint->pos[1], scale);
     if (joint->type == kMeFJointTypePrismatic)
         for (MeReal& s : joint->stop)
             s *= scale;

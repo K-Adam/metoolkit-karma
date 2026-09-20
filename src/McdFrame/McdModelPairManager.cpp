@@ -40,10 +40,7 @@ void MEAPI McdModelPairManagerDestroy(McdModelPairManager* manager)
 {
     ManagerImpl* m = impl(manager);
     for (auto& kv : m->active)
-    {
-        McdGoodbye(kv.second);
         McdModelPairDestroy(kv.second);
-    }
     for (McdModelPair* p : m->goodbye)
         McdModelPairDestroy(p);
     delete m;

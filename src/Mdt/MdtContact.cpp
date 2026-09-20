@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 namespace {
@@ -12,16 +14,12 @@ void destroyContact(MdtConstraintID c)
     delete k;
 }
 
+// A grouped contact is prepared by its group.
 void prepareContact(MdtWorldImpl& w, MdtConstraintID c)
 {
-    mdtContactPrepare(w, reinterpret_cast<MdtContactID>(c));
-}
-
-void set3(MeReal* v, MeReal x, MeReal y, MeReal z)
-{
-    v[0] = x;
-    v[1] = y;
-    v[2] = z;
+    auto* k = reinterpret_cast<MdtContactID>(c);
+    if (!k->contactGroup)
+        mdtContactPrepare(w, k);
 }
 
 // Kea's friction rows have a fixed force bound per step, which Bullet's Coulomb rows cannot express. Each
@@ -35,10 +33,14 @@ public:
         btScalar limit, velocity;
     };
 
-    ContactFriction(btRigidBody& a, btRigidBody& b, const btVector3& armA, const btVector3& armB)
-        : btTypedConstraint(CONTACT_CONSTRAINT_TYPE, a, b), m_armA(armA), m_armB(armB)
+    ContactFriction(MdtContact& c, btRigidBody& a, btRigidBody& b, const btVector3& armA, const btVector3& armB)
+        : btTypedConstraint(CONTACT_CONSTRAINT_TYPE, a, b), contact(c), m_armA(armA), m_armB(armB)
     {
+        setJointFeedback(&feedback);
     }
+
+    MdtContact& contact;
+    btJointFeedback feedback{};
 
     void addRow(const Row& r) { m_rows[m_count++] = r; }
 
@@ -78,14 +80,14 @@ private:
     int m_count = 0;
 };
 
-// The normal force model scales the previous step's normal force, taken as this contact's share of its
-// group's total.
+// As observed in the original, the normal force model gives each contact an equal share of its group's
+// previous normal force, and a contact outside a group falls back to box friction.
 btScalar frictionLimit(const MdtContact& c, MdtFrictionModel model, MeReal box, MeReal coeff)
 {
-    if (model == MdtFrictionModelBox)
-        return box >= MEINFINITY ? BT_LARGE_FLOAT : box;
     MdtContactGroupID g = c.contactGroup;
-    return g && g->count ? coeff * g->normalForce / g->count : 0;
+    if (model == MdtFrictionModelNormalForce && g && g->count)
+        return coeff * g->normalForce / g->count;
+    return box >= MEINFINITY ? BT_LARGE_FLOAT : box;
 }
 
 btScalar surfaceVelocity(const MdtContact& c, const btVector3& dir, int slideOption, MeReal slide)
@@ -96,7 +98,7 @@ btScalar surfaceVelocity(const MdtContact& c, const btVector3& dir, int slideOpt
     return v;
 }
 
-void addFriction(MdtWorldImpl& w, const MdtContact& c, btRigidBody& a, btRigidBody& b, const btVector3& onA,
+void addFriction(MdtWorldImpl& w, MdtContact& c, btRigidBody& a, btRigidBody& b, const btVector3& onA,
                  const btVector3& onB, const btVector3& normal)
 {
     const MdtBclContactParams& p = c.params;
@@ -110,7 +112,7 @@ void addFriction(MdtWorldImpl& w, const MdtContact& c, btRigidBody& a, btRigidBo
         dir1 = user.normalized();
     dir2 = normal.cross(dir1);
 
-    auto f = std::make_unique<ContactFriction>(a, b, onA - a.getCenterOfMassPosition(),
+    auto f = std::make_unique<ContactFriction>(c, a, b, onA - a.getCenterOfMassPosition(),
                                                onB - b.getCenterOfMassPosition());
     f->addRow({dir1, frictionLimit(c, p.model1, p.friction1, p.frictioncoeff1),
                surfaceVelocity(c, dir1, MdtBclContactOptionSlide1, p.slide1)});
@@ -123,22 +125,73 @@ void addFriction(MdtWorldImpl& w, const MdtContact& c, btRigidBody& a, btRigidBo
 
 void resetContact(MdtContactID c)
 {
-    set3(c->cpos, 0, 0, 0);
-    set3(c->normal, 0, 1, 0);
-    set3(c->direction, 1, 0, 0);
-    set3(c->worldVel, 0, 0, 0);
+    MeVector3Set(c->cpos, 0, 0, 0);
+    MeVector3Set(c->normal, 0, 1, 0);
+    MeVector3Set(c->direction, 1, 0, 0);
+    MeVector3Set(c->worldVel, 0, 0, 0);
     c->penetration = 0;
     MdtContactParamsReset(&c->params);
 }
 
+void addResult(MeVector4 out, const btVector3& v)
+{
+    fromBt(toBt(out) + v, out);
+}
+
+// Adds to the contact and to its group what this step applied to body1 and body2.
+void addResults(MdtContact& c, const btVector3& fA, const btVector3& tA, const btVector3& fB, const btVector3& tB)
+{
+    auto add = [&](MdtConstraintHeader& h) {
+        addResult(h.resultForce[0], fA);
+        addResult(h.resultTorque[0], tA);
+        // The world is not a body, so it reports nothing.
+        if (c.head.mdtbody[1])
+        {
+            addResult(h.resultForce[1], fB);
+            addResult(h.resultTorque[1], tB);
+        }
+    };
+    add(c.head);
+    if (c.contactGroup)
+        add(c.contactGroup->head);
+}
+
+const MdtConstraintOps kContactOps = {destroyContact, prepareContact};
+
 } // namespace
 
-const MdtConstraintOps mdtContactOps = {destroyContact, prepareContact};
+void mdtContactCollectForces(MdtWorldImpl& w, MeReal dt)
+{
+    for (btPersistentManifold* m : w.stepManifolds)
+        for (int i = 0; i < m->getNumContacts(); ++i)
+        {
+            const btManifoldPoint& pt = m->getContactPoint(i);
+            auto* c = static_cast<MdtContactID>(pt.m_userPersistentData);
+            btScalar n = pt.m_appliedImpulse / dt;
+            btVector3 f = pt.m_normalWorldOnB * n;
+            // pullBody has not run yet, so comTM is still the centre of mass the solve used.
+            MdtBodyID b2 = c->head.mdtbody[1];
+            btVector3 armA = pt.m_positionWorldOnA - toBt(c->head.mdtbody[0]->comTM[3]);
+            btVector3 armB = b2 ? pt.m_positionWorldOnB - toBt(b2->comTM[3]) : btVector3(0, 0, 0);
+            addResults(*c, f, armA.cross(f), -f, armB.cross(-f));
+            if (c->contactGroup)
+                c->contactGroup->normalForce += n;
+        }
+    // Bullet's feedback holds forces and torques about each body's centre of mass.
+    for (auto& t : w.stepConstraints)
+    {
+        auto& f = static_cast<ContactFriction&>(*t);
+        const btJointFeedback& fb = f.feedback;
+        addResults(f.contact, fb.m_appliedForceBodyA, fb.m_appliedTorqueBodyA, fb.m_appliedForceBodyB,
+                   fb.m_appliedTorqueBodyB);
+    }
+}
 
 // The contact normal points from body2 to body1, as the bridge copies it from McdContact. Bullet's
 // normalWorldOnB has the same direction with A as body1, and its distance is the negative penetration.
 void mdtContactPrepare(MdtWorldImpl& w, MdtContactID c)
 {
+    mdtClearResults(c->head);
     MdtBodyID b1 = c->head.mdtbody[0], b2 = c->head.mdtbody[1];
     // After waking and partitioning, a two-body contact's bodies are enabled or disabled together.
     if (!b1 || !MdtBodyIsEnabled(b1))
@@ -185,9 +238,11 @@ const MdtContactID MdtContactInvalidID = nullptr;
 
 MdtContactID MEAPI MdtContactCreate(const MdtWorldID w)
 {
+    // Grouped contacts stay in the world's list too, as the original counts them.
     auto* c = new MdtContact{};
-    mdtRegisterConstraintOps(MdtBclCONTACT, &mdtContactOps);
+    mdtRegisterConstraintOps(MdtBclCONTACT, &kContactOps);
     mdtConstraintInit(c->head, w, MdtBclCONTACT);
+    c->head.maxRows = MdtBclGETMAXROWSCONTACT;
     resetContact(c);
     return c;
 }
@@ -217,7 +272,7 @@ void MEAPI MdtContactGetPosition(const MdtContactID c, MeVector3 v)
 
 void MEAPI MdtContactSetPosition(const MdtContactID c, const MeReal x, const MeReal y, const MeReal z)
 {
-    set3(c->cpos, x, y, z);
+    MeVector3Set(c->cpos, x, y, z);
 }
 
 void MEAPI MdtContactGetNormal(const MdtContactID c, MeVector3 v)
@@ -227,7 +282,7 @@ void MEAPI MdtContactGetNormal(const MdtContactID c, MeVector3 v)
 
 void MEAPI MdtContactSetNormal(const MdtContactID c, const MeReal x, const MeReal y, const MeReal z)
 {
-    set3(c->normal, x, y, z);
+    MeVector3Set(c->normal, x, y, z);
 }
 
 MeReal MEAPI MdtContactGetPenetration(const MdtContactID c)
@@ -247,7 +302,7 @@ void MEAPI MdtContactGetDirection(const MdtContactID c, MeVector3 v)
 
 void MEAPI MdtContactSetDirection(const MdtContactID c, const MeReal x, const MeReal y, const MeReal z)
 {
-    set3(c->direction, x, y, z);
+    MeVector3Set(c->direction, x, y, z);
     c->params.options |= MdtBclContactOptionUseDirection;
 }
 
@@ -258,7 +313,7 @@ void MEAPI MdtContactGetWorldVelocity(const MdtContactID c, MeVector3 v)
 
 void MEAPI MdtContactSetWorldVelocity(const MdtContactID c, const MeReal x, const MeReal y, const MeReal z)
 {
-    set3(c->worldVel, x, y, z);
+    MeVector3Set(c->worldVel, x, y, z);
     c->params.options |= MdtBclContactOptionUseWorldVelocity;
 }
 
@@ -270,7 +325,7 @@ void MEAPI MdtContactGetRelativeVelocity(const MdtContactID c, MeVector3 v)
         MdtBodyGetVelocityAtPoint(b1, c->cpos, v1);
     if (MdtBodyID b2 = c->head.mdtbody[1])
         MdtBodyGetVelocityAtPoint(b2, c->cpos, v2);
-    set3(v, v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2]);
+    MeVector3Subtract(v, v1, v2);
 }
 
 MdtContactParamsID MEAPI MdtContactGetParams(const MdtContactID c)

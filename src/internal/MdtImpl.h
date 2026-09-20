@@ -3,6 +3,7 @@
 #include <BulletCollision/CollisionDispatch/btSimulationIslandManager.h>
 #include <btBulletDynamicsCommon.h>
 
+#include <cstring>
 #include <memory>
 #include <unordered_set>
 #include <vector>
@@ -67,7 +68,8 @@ inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>
 btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b);
 
 void mdtContactPrepare(MdtWorldImpl& w, MdtContactID c);
-extern const MdtConstraintOps mdtContactOps;
+// After the solve, writes the forces of the contacts prepared this step and of their groups.
+void mdtContactCollectForces(MdtWorldImpl& w, MeReal dt);
 
 void mdtBodyUpdateCom(MdtBody& b);
 
@@ -140,6 +142,12 @@ struct MdtJointImpl
 void mdtJointPrepare(MdtWorldImpl& w, MdtConstraintID c);
 void mdtJointRemove(MdtWorldImpl& w, MdtJointBullet& j);
 void mdtConstraintResetFrames(MdtConstraintHeader& head);
+
+inline void mdtClearResults(MdtConstraintHeader& h)
+{
+    std::memset(h.resultForce, 0, sizeof h.resultForce);
+    std::memset(h.resultTorque, 0, sizeof h.resultTorque);
+}
 
 template <class Pub>
 MdtJointBullet* mdtJointBullet(MdtConstraintID c)

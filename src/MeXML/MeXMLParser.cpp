@@ -6,6 +6,7 @@
 
 #include <MeXMLParser.h>
 
+#include "StringCopy.h"
 #include "XMLText.h"
 
 namespace {
@@ -418,8 +419,7 @@ MeBool MEAPI MeXMLHandlerWasCalled(MeXMLHandler handlers[], char* name)
 void MEAPI MeXMLElementHandlerCreate(MeXMLHandler* handler, char* name, void* fn)
 {
     *handler = MeXMLHandler{};
-    handler->name = static_cast<char*>(std::malloc(std::strlen(name) + 1));
-    std::strcpy(handler->name, name);
+    handler->name = duplicateString(name);
     handler->type = MeXMLActionCallback;
     handler->fn = fn;
 }

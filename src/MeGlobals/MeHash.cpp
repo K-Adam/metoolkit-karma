@@ -87,10 +87,14 @@ void MEAPI MeHashDestroy(MeHash* table)
 void* MEAPI MeHashInsert(const void* key, const void* datum, MeHash* table)
 {
     MeHashBucket** link = find(key, table);
-    if (*link)
+    // The new key replaces the old one, because the old key may be owned by the datum being replaced.
+    if (MeHashBucket* bucket = *link)
     {
-        void* old = (*link)->datum;
-        (*link)->datum = const_cast<void*>(datum);
+        if (table->freeKey && bucket->key != key)
+            table->freeKey(bucket->key);
+        bucket->key = const_cast<void*>(key);
+        void* old = bucket->datum;
+        bucket->datum = const_cast<void*>(datum);
         return old;
     }
     MeHashBucket*& head = table->table[table->hash(key, table->size)];

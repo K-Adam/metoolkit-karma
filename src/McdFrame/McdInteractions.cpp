@@ -24,9 +24,11 @@ int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r)
         return 0;
     btCollisionObjectWrapper w1 = mcdWrap(p->model1), w2 = mcdWrap(p->model2);
     btManifoldResult result(&w1, &w2);
+    result.m_closestPointDistanceThreshold = mcdPairTolerance(p);
     btDispatcherInfo info;
     algorithm->processCollision(&w1, &w2, info, &result);
-    mcdSetMeanNormal(r, mcdAddManifoldContacts(algorithm, &impl(p->model1)->object, r, mcdContactLimit(p, r)));
+    mcdSetMeanNormal(r, mcdAddManifoldContacts(algorithm, &impl(p->model1)->object, result.m_closestPointDistanceThreshold,
+                                               r, mcdContactLimit(p, r)));
     return r->contactCount > 0;
 }
 
@@ -237,7 +239,7 @@ btCollisionObjectWrapper mcdWrap(McdModelID m)
     return btCollisionObjectWrapper(nullptr, o.getCollisionShape(), &o, o.getWorldTransform(), -1, -1);
 }
 
-btVector3 mcdAddManifoldContacts(btCollisionAlgorithm* algorithm, const btCollisionObject* object1,
+btVector3 mcdAddManifoldContacts(btCollisionAlgorithm* algorithm, const btCollisionObject* object1, MeReal tolerance,
                                  McdIntersectResult* r, int limit)
 {
     btManifoldArray manifolds;
@@ -252,6 +254,8 @@ btVector3 mcdAddManifoldContacts(btCollisionAlgorithm* algorithm, const btCollis
         for (int j = 0; j < m->getNumContacts() && r->contactCount < limit; ++j)
         {
             const btManifoldPoint& pt = m->getContactPoint(j);
+            if (pt.getDistance() > tolerance)
+                continue;
             btVector3 n = pt.m_normalWorldOnB * sign;
             mcdAddContact(r, (pt.getPositionWorldOnA() + pt.getPositionWorldOnB()) * 0.5f, n, pt.getDistance());
             sum += n;

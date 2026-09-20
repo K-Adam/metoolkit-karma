@@ -6,14 +6,9 @@
 #include <MeSimpleFile.h>
 #include <MeStream.h>
 
-namespace {
+#include "StringCopy.h"
 
-char* duplicate(const char* s)
-{
-    char* copy = static_cast<char*>(std::malloc(std::strlen(s) + 1));
-    std::strcpy(copy, s);
-    return copy;
-}
+namespace {
 
 const char* modeString(MeOpenMode_enum mode)
 {
@@ -47,7 +42,7 @@ MeStream MEAPI MeStreamOpen(const char* filename, MeOpenMode_enum mode)
     if (!file)
         return nullptr;
     MeStream s = static_cast<MeStream>(std::calloc(1, sizeof(_MeStream)));
-    s->filename = duplicate(filename);
+    s->filename = duplicateString(filename);
     s->handle = file;
     return s;
 }

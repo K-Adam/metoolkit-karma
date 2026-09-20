@@ -2,24 +2,14 @@
 
 namespace {
 
-void deleteContact(MdtContactID k)
-{
-    impl(k->head.world)->enabled.erase(reinterpret_cast<MdtConstraintID>(k));
-    delete k;
-}
-
 void destroyGroup(MdtConstraintID c)
 {
     auto* g = reinterpret_cast<MdtContactGroupID>(c);
     MdtWorldID w = g->head.world;
     if (w->contactGroupDestroyCallback)
         w->contactGroupDestroyCallback(g);
-    for (MdtContactID k = g->first; k;)
-    {
-        MdtContactID next = k->nextContact;
-        deleteContact(k);
-        k = next;
-    }
+    while (g->first)
+        MdtContactGroupDestroyContact(g, g->first);
     delete g;
 }
 
@@ -32,8 +22,9 @@ void prepareGroup(MdtWorldImpl& w, MdtConstraintID c)
         k->head.mdtbody[1] = g->head.mdtbody[1];
         mdtContactPrepare(w, k);
     }
-    // Box friction reads last step's value while preparing, then MdtWorldStep accumulates this step's.
+    // Friction reads last step's values while preparing, then MdtWorldStep accumulates this step's.
     g->normalForce = 0;
+    mdtClearResults(g->head);
 }
 
 const MdtConstraintOps kGroupOps = {destroyGroup, prepareGroup};
@@ -81,23 +72,22 @@ MdtContactID MEAPI MdtContactGroupGetNextContact(MdtContactGroupID, MdtContactID
     return c->nextContact;
 }
 
-// Group contacts are owned by the group and never enter the world's constraint list.
 MdtContactID MEAPI MdtContactGroupCreateContact(MdtContactGroupID g)
 {
-    auto* c = new MdtContact{};
-    // MdtContactDestroy reaches group contacts through the generic constraint path.
-    mdtRegisterConstraintOps(MdtBclCONTACT, &mdtContactOps);
-    c->head.world = g->head.world;
-    c->head.tag = MdtBclCONTACT;
+    MdtContactID c = MdtContactCreate(g->head.world);
     c->head.mdtbody[0] = g->head.mdtbody[0];
     c->head.mdtbody[1] = g->head.mdtbody[1];
-    MdtContactReset(c);
     MdtContactGroupAppendContact(g, c);
     return c;
 }
 
+// The group owns its contacts and destroys them with itself, as the original does.
 void MEAPI MdtContactGroupAppendContact(MdtContactGroupID g, MdtContactID c)
 {
+    if (c->contactGroup)
+        MdtContactGroupRemoveContact(c->contactGroup, c);
+    // The group enables its contacts, so an enabled contact must not also join partitions on its own.
+    MdtConstraintDisable(MdtContactQuaConstraint(c));
     c->contactGroup = g;
     c->nextContact = nullptr;
     c->prevContact = g->last;
@@ -107,6 +97,7 @@ void MEAPI MdtContactGroupAppendContact(MdtContactGroupID g, MdtContactID c)
         g->first = c;
     g->last = c;
     ++g->count;
+    g->head.maxRows += MdtBclGETMAXROWSCONTACT;
 }
 
 void MEAPI MdtContactGroupRemoveContact(MdtContactGroupID g, MdtContactID c)
@@ -122,12 +113,13 @@ void MEAPI MdtContactGroupRemoveContact(MdtContactGroupID g, MdtContactID c)
     c->nextContact = c->prevContact = nullptr;
     c->contactGroup = nullptr;
     --g->count;
+    g->head.maxRows -= MdtBclGETMAXROWSCONTACT;
 }
 
 void MEAPI MdtContactGroupDestroyContact(MdtContactGroupID g, MdtContactID c)
 {
     MdtContactGroupRemoveContact(g, c);
-    deleteContact(c);
+    MdtConstraintDestroy(MdtContactQuaConstraint(c));
 }
 
 MeBool MEAPI MdtContactGroupIsSwapped(MdtContactGroupID g)

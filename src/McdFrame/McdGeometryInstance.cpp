@@ -45,10 +45,7 @@ void MEAPI McdGeometryInstanceUpdateAABB(McdGeometryInstanceID ins, const MeMatr
         v->getAABB(ins, finalTM, tight);
         return;
     }
-    btVector3 lo, hi;
-    mcdGeometryShape(ins->mGeometry)->getAabb(toBtTransform(finalTM), lo, hi);
-    fromBt(lo, ins->min);
-    fromBt(hi, ins->max);
+    mcdShapeAABB(ins, finalTM);
 }
 
 void MEAPI McdGeometryInstanceMaximumPoint(McdGeometryInstanceID ins, MeReal* const inDir, MeReal* const outPoint)

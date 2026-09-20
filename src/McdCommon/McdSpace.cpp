@@ -160,10 +160,7 @@ McdSpaceID MEAPI McdSpaceAxisSortCreate(McdFrameworkID fwk, int axes, int object
 void MEAPI McdSpaceDestroy(McdSpaceID s)
 {
     for (auto& kv : s->pairs)
-    {
-        McdGoodbye(kv.second);
         McdModelPairDestroy(kv.second);
-    }
     for (McdModelPair* p : s->removed)
         McdModelPairDestroy(p);
     for (McdModelPair* p : s->goodbye)
@@ -230,6 +227,10 @@ MeBool MEAPI McdSpaceRemoveModel(McdModelID cm)
         else
             ++it;
     }
+    // Pending goodbye pairs outlive the model until the next update, so they must not need it any more.
+    for (McdModelPair* p : s->goodbye)
+        if (p->model1 == cm || p->model2 == cm)
+            McdGoodbye(p);
     detach(s, cm);
     return 1;
 }

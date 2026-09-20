@@ -42,6 +42,11 @@ MeI16 MEAPI McdBoxGetMassProperties(McdGeometryID g, MeMatrix4 relTM, MeMatrix3 
 void MEAPI McdBoxRegisterType(McdFramework* frame)
 {
     P::registerType(frame, kMcdGeometryTypeBox, "Box", McdBoxGetMassProperties);
+    // Bullet's dedicated box-box test reports only penetration, never contacts within the tolerance.
+    McdFrameworkImpl* f = impl(frame);
+    f->dispatcher.registerCollisionCreateFunc(
+        BOX_SHAPE_PROXYTYPE, BOX_SHAPE_PROXYTYPE,
+        f->config.getCollisionAlgorithmCreateFunc(CONVEX_HULL_SHAPE_PROXYTYPE, CONVEX_HULL_SHAPE_PROXYTYPE));
 }
 
 McdBoxID MEAPI McdBoxCreate(McdFramework* frame, MeReal dx, MeReal dy, MeReal dz)

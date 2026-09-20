@@ -5,16 +5,10 @@
 
 #include <MeXMLTree.h>
 
+#include "StringCopy.h"
 #include "XMLText.h"
 
 namespace {
-
-char* duplicate(const std::string& s)
-{
-    char* copy = static_cast<char*>(std::malloc(s.size() + 1));
-    std::memcpy(copy, s.c_str(), s.size() + 1);
-    return copy;
-}
 
 void traverse(PElement* e, PElement* parent, PElementCB cb, MeBool rootFirst, void* userdata)
 {
@@ -85,8 +79,8 @@ void MEAPI PElementDestroy(PElement* e)
 void MEAPI PElementAddAttribute(PElement* e, char* attr, char* val)
 {
     Attribute* a = static_cast<Attribute*>(std::malloc(sizeof(Attribute)));
-    a->attr = duplicate(attr);
-    a->value = duplicate(val);
+    a->attr = duplicateString(attr);
+    a->value = duplicateString(val);
     AttributeNode** tail = &e->attrHead;
     while (*tail)
         tail = &(*tail)->next;
