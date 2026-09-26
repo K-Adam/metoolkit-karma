@@ -24,4 +24,16 @@ void MEAPI McdModelSetBody(const McdModelID m, const MdtBodyID b)
     McdModelSetAngularVelocityPtr(m, MdtBodyGetAngularVelocityPtr(b));
 }
 
+// Only the pose and velocities are reset, the mass properties stay.
+void MEAPI McdModelDynamicsReset(const McdModelID m)
+{
+    MdtBodyID b = McdModelGetBody(m);
+    if (!b)
+        return;
+    const MeMatrix4 identity = {{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, 0, 1}};
+    MdtBodySetTransform(b, identity);
+    MdtBodySetLinearVelocity(b, 0, 0, 0);
+    MdtBodySetAngularVelocity(b, 0, 0, 0);
+}
+
 } // extern "C"

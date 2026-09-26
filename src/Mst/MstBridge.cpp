@@ -192,6 +192,18 @@ void MEAPI MstHandleCollisions(McdModelPairContainer* pairs, const McdSpaceID s,
     }
 }
 
+void MEAPI MstBridgeUpdateTransitions(const MstBridgeID b, const McdSpaceID s, const MdtWorldID w)
+{
+    McdSpacePairIterator it;
+    McdSpacePairIteratorBegin(s, &it);
+    int more;
+    do
+    {
+        more = McdSpaceGetTransitions(s, &it, b->pairs);
+        MstHandleTransitions(b->pairs, s, w, b);
+    } while (more);
+}
+
 void MEAPI MstBridgeUpdateContacts(const MstBridgeID b, const McdSpaceID s, const MdtWorldID w)
 {
     McdSpacePairIterator it;

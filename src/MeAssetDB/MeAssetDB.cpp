@@ -9,6 +9,7 @@
 
 #include <MeAssetDB.h>
 #include <MdtDefaults.h>
+#include <MdtTypes.h>
 #include <MeMath.h>
 
 #include "StringCopy.h"
@@ -1580,11 +1581,38 @@ void MEAPI MeFJointSetPerTypeDefaults(MeFJoint* const j)
     j->special_f[0] = 0;
     j->special_i[0] = j->special_i[1] = 0;
     j->special_b[0] = 0;
-    if (j->type == kMeFJointTypeSkeletal)
+    switch (j->type)
     {
+    case kMeFJointTypeHinge:
+    case kMeFJointTypePrismatic: j->stiff[0] = j->stiff[1] = MEINFINITY; break;
+    case kMeFJointTypeConeLimit:
+        j->stop[0] = ME_PI;
+        j->stiff[0] = j->damp[0] = MEINFINITY;
+        break;
+    case kMeFJointTypeAngular3: j->stiff[0] = j->damp[0] = MEINFINITY; break;
+    case kMeFJointTypeSkeletal:
         j->stop[0] = MDTSKELETAL_DEFAULT_PRI_ANGLE;
         j->stop[1] = MDTSKELETAL_DEFAULT_SEC_ANGLE;
         j->stop[2] = MDTSKELETAL_DEFAULT_TWIST_ANGLE;
+        j->special_i[0] = MdtSkeletalTwistOptionFixed;
+        j->special_i[1] = MdtSkeletalConeOptionCone;
+        for (int k = 0; k < 2; ++k)
+            j->stiff[k] = j->damp[k] = MEINFINITY;
+        break;
+    case kMeFJointTypeCarwheel:
+        j->stop[0] = (MeReal)MDTCARWHEEL_DEFAULT_SUSP_HI;
+        j->stop[1] = (MeReal)MDTCARWHEEL_DEFAULT_SUSP_LO;
+        j->strength[1] = (MeReal)MDTCARWHEEL_DEFAULT_STEER_MAXFORCE;
+        break;
+    case kMeFJointTypeRpro:
+        for (int k = 0; k < 6; ++k)
+            j->strength[k] = MEINFINITY;
+        break;
+    case kMeFJointTypeSpring6:
+        for (int k = 0; k < 6; ++k)
+            j->stiff[k] = MEINFINITY;
+        break;
+    default: break;
     }
 }
 

@@ -34,7 +34,9 @@ public:
         r.worldAng = head.mdtbody[1] ? btVector3(0, 0, 0) : toBt(head.worldAngVel);
         r.worldLin = head.mdtbody[1] ? btVector3(0, 0, 0) : toBt(head.worldLinVel) - r.worldAng.cross(r.fb.getOrigin());
         r.n = 0;
+        r.softDeltas = &impl(c->head.world)->softDeltas;
         mdtConstraintOps(c->head.tag)->rows(c, r);
+        r.commitSoftRows();
         info->m_numConstraintRows = r.n;
         info->nub = 0;
     }
@@ -212,7 +214,9 @@ btScalar forcedVelocity(const btRigidBody& body, const btVector3& lin, const btV
 // impulse units, cfm C = 1 / (h (h kp + kd)). Bullet's joint iteration only converges for a cfm below the
 // row's effective mass m, which a soft spring exceeds, so the row's regularised impulse is solved here on its
 // own and fixed through its bounds.
-// ponytail: soft rows ignore coupling with the joint's other rows, solve them together if that shows.
+// Soft rows see the impulses fixed by earlier joints this step, one Gauss-Seidel sweep, so springs sharing a
+// light body do not each push it the whole way.
+// ponytail: soft rows ignore coupling with hard rows, solve them together if that shows.
 MdtRow* MdtJointRows::lock(const MdtRow& j, btScalar error, btScalar kp, btScalar kd)
 {
     btScalar d = h * kp + kd;
@@ -225,8 +229,31 @@ MdtRow* MdtJointRows::lock(const MdtRow& j, btScalar error, btScalar kp, btScala
         return &r;
     }
     btScalar v = velocity(r) + forcedVelocity(*a, r.linA, r.angA, h) + forcedVelocity(*b, r.linB, r.angB, h);
+    auto pending = [&](const btRigidBody* body, const btVector3& lin, const btVector3& ang) {
+        auto it = softDeltas->find(body);
+        return it == softDeltas->end() ? btScalar(0) : lin.dot(it->second.lin) + ang.dot(it->second.ang);
+    };
+    v += pending(a, r.linA, r.angA) + pending(b, r.linB, r.angB);
     r.lo = r.hi = (-kp / d * error - v) / (effectiveMass(r) + 1 / (h * d));
     return &r;
+}
+
+// lo == hi marks a soft row.
+void MdtJointRows::commitSoftRows()
+{
+    auto apply = [&](const btRigidBody* body, const btVector3& lin, const btVector3& ang, btScalar impulse) {
+        if (body->getInvMass() == 0)
+            return;
+        MdtSoftDelta& d = (*softDeltas)[body];
+        d.lin += lin * (body->getInvMass() * impulse);
+        d.ang += body->getInvInertiaTensorWorld() * ang * impulse;
+    };
+    for (int i = 0; i < n; ++i)
+        if (rows[i].lo == rows[i].hi && rows[i].lo != 0)
+        {
+            apply(a, rows[i].linA, rows[i].angA, rows[i].lo);
+            apply(b, rows[i].linB, rows[i].angB, rows[i].lo);
+        }
 }
 
 MdtRow& MdtJointRows::motor(const MdtRow& j, btScalar v, btScalar fmax)

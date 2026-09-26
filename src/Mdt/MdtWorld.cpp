@@ -212,6 +212,7 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
             if (const MdtConstraintOps* ops = mdtConstraintOps(c->head.tag); ops && ops->prepare)
                 ops->prepare(wi, c);
 
+    wi.softDeltas.clear();
     wi.world.stepSimulation(stepSize, 0);
 
     mdtContactCollectForces(wi, stepSize);

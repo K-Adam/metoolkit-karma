@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -42,6 +43,13 @@ struct MdtBodyImpl
 
 inline MdtBodyImpl* impl(MdtBodyID b) { return reinterpret_cast<MdtBodyImpl*>(b); }
 
+// Velocity change already committed to a body by the soft rows fixed earlier in this step.
+struct MdtSoftDelta
+{
+    btVector3 lin{0, 0, 0}, ang{0, 0, 0};
+};
+using MdtSoftDeltas = std::unordered_map<const btRigidBody*, MdtSoftDelta>;
+
 // Bullet only runs dynamics here. Bodies never enter its broadphase and every contact comes from MdtContact
 // constraints, written into the dispatcher as manifolds for one step.
 struct MdtWorldImpl
@@ -60,6 +68,7 @@ struct MdtWorldImpl
     std::vector<btPersistentManifold*> stepManifolds;
     // Contact friction rows, added to the Bullet world for one step like stepManifolds.
     std::vector<std::unique_ptr<btTypedConstraint>> stepConstraints;
+    MdtSoftDeltas softDeltas;
 };
 
 inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>(w); }
@@ -91,6 +100,7 @@ struct MdtJointRows
     btScalar h, gamma;
     // Velocity of a world body B at the world origin, and its angular velocity.
     btVector3 worldLin{0, 0, 0}, worldAng{0, 0, 0};
+    MdtSoftDeltas* softDeltas = nullptr;
     MdtRow rows[maxRows];
     int n = 0;
 
@@ -105,6 +115,8 @@ struct MdtJointRows
     // Adds j driving error to zero, hard when kp is infinite and as a damped spring otherwise. Adds nothing
     // when kp and kd are both zero.
     MdtRow* lock(const MdtRow& j, btScalar error, btScalar kp = MEINFINITY, btScalar kd = 0);
+    // Records the impulses of this joint's soft rows for the soft rows of joints solved after it.
+    void commitSoftRows();
     // Adds a motor row driving j at velocity v with force at most fmax.
     MdtRow& motor(const MdtRow& j, btScalar v, btScalar fmax);
     // Restricts r to pushing its error down (upper) or up.

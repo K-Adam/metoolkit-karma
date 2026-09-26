@@ -23,6 +23,23 @@ void MEAPI unfreezeModel(const MdtBodyID b)
         McdSpaceUnfreezeModel(m);
 }
 
+// The geometry reports the inertia of unit mass.
+bool unitInertia(McdModelID model, MeMatrix3 inertia, MeReal* volume)
+{
+    MeMatrix4 relTM;
+    McdGeometryGetMassProperties(McdModelGetGeometry(model), relTM, inertia, volume);
+    if (*volume > 0)
+        return true;
+    MeWarning(0, "Mst: geometry has no volume, mass properties left unchanged");
+    return false;
+}
+
+void setScaledInertia(MdtBodyID body, MeMatrix3 inertia, MeReal mass)
+{
+    MeMatrix3Scale(inertia, mass);
+    MdtBodySetInertiaTensor(body, inertia);
+}
+
 } // namespace
 
 extern "C" {
@@ -36,21 +53,23 @@ void MEAPI MstSetWorldHandlers(const MdtWorldID world)
 
 void MEAPI MstAutoSetMassProperties(const MdtBodyID body, const McdModelID model, const MeReal density)
 {
-    MeMatrix4 relTM;
-    MeMatrix3 inertia;
     MeReal volume = 0;
-    McdGeometryGetMassProperties(McdModelGetGeometry(model), relTM, inertia, &volume);
-    if (volume <= 0)
-    {
-        MeWarning(0, "MstAutoSetMassProperties: geometry has no volume");
+    MeMatrix3 inertia;
+    if (!unitInertia(model, inertia, &volume))
         return;
-    }
     MeReal mass = density * volume;
-    for (int r = 0; r < 3; ++r)
-        for (int c = 0; c < 3; ++c)
-            inertia[r][c] *= mass;
     MdtBodySetMass(body, mass);
-    MdtBodySetInertiaTensor(body, inertia);
+    setScaledInertia(body, inertia, mass);
+}
+
+// Keeps the body's mass and takes the shape of the inertia from the geometry.
+void MEAPI MstAutoSetInertialTensor(const McdModelID model)
+{
+    MdtBodyID body = McdModelGetBody(model);
+    MeReal volume = 0;
+    MeMatrix3 inertia;
+    if (body && unitInertia(model, inertia, &volume))
+        setScaledInertia(body, inertia, MdtBodyGetMass(body));
 }
 
 McdModelID MEAPI MstModelAndBodyCreate(const MstUniverseID u, const McdGeometryID g, const MeReal density)

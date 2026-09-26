@@ -58,6 +58,7 @@ Fields that clients read (`MdtBody::bodyTM`, `keaBody.vel`, pair container range
 - A new `McdSpace` starts inside a change block. Pairs are read between `McdSpaceEndChanges` and `McdSpaceBeginChanges`.
 - Primitive-plane contacts follow Karma: 4 corners for a resting box, 4 rim points per cylinder cap, 2 contacts for a sphyl.
 - Auto-disable is on by default, and the default inertia is 0.4 times the mass.
+- A pair built by hand must get `McdGoodbye` before either of its models is destroyed.
 
 **Header changes.** `include/` matches the original SDK except for one fix needed for 64-bit builds: `MeUintPtr` is `uintptr_t` under `WIN32` (it was 32 bits), and the `MeMemory.h` alignment macros cast through it instead of `long unsigned`.
 
@@ -84,9 +85,9 @@ The original libraries were built with a 2002 compiler against `msvcrt.dll`. `ms
 |------|-----------|-------|
 | Viewer | MeViewer2, MeApp | Deferred until a renderer is chosen. `*DebugDraw` functions wait on it too. |
 | Solver internals | MdtKea, MdtBcl, MdtPartition, MdtMainLoop, MdtUserConstraint | Expose Karma's own solver, which Bullet replaces. User constraints would need an `MdtBclAddConstraintFn` adapter. |
-| Fidelity | Mdt | Contact slip and adhesion are stored but not simulated, off-diagonal inertia is dropped, and soft joint rows ignore coupling with the joint's other rows. |
-| Assets | MeAssetDBXMLIO | The `.ka` tags for prismatic and cone limit joints, box dimensions and convex vertices are not in any shipped file and are a best guess. |
-| Misc | MeGlobals, McdFrame | MeASELoad, McdBatch, McduDebugDraw, McduRequestTable. |
+| Fidelity | Mdt | Contact slip and adhesion are stored but not simulated, off-diagonal inertia is dropped, and soft joint rows are solved one at a time. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
+| Assets | MeAssetDBXMLIO | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. |
+| Misc | MeGlobals, McdFrame, Mst | MeASELoad, McdBatch, McduDebugDraw, McduRequestTable. `MstBridgeStepAll` is declared but absent from the original library. |
 
 Each new library target is one `karma_add_library(<Name> DEPS ...)` line in `CMakeLists.txt` plus a `src/<Name>/` directory.
 

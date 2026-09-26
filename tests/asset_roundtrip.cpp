@@ -205,6 +205,12 @@ int main()
     MeFJointSetProperty1b(wheel, kMeFJointPropertySpecialBool1, 1);
     MeFAssetInsertJoint(soldier, wheel);
 
+    // A fresh cone limit is hard, so its MEINFINITY stiffness and damping must survive the file.
+    MeFJoint* cone = MeFJointCreate("cone", kMeFJointTypeConeLimit);
+    MeFJointSetPartByName(cone, "pelvis", 0);
+    MeFJointSetPartByName(cone, "l_hip", 1);
+    MeFAssetInsertJoint(soldier, cone);
+
     const char* saved = "asset_roundtrip.ka";
     MeStream out = MeStreamOpen(saved, kMeOpenModeWRONLY);
     CHECK(out);

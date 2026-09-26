@@ -54,6 +54,7 @@ karma_add_library(Mst DEPS McdCommon McdPrimitives Mdt)
 karma_add_library(MeXML DEPS MeGlobals)
 karma_add_library(MeAssetDB DEPS MeGlobals)
 karma_add_library(MeAssetDBXMLIO DEPS MeAssetDB MeXML)
+karma_add_library(MeAssetFactory DEPS Mst McdConvex MeAssetDB)
 
 enable_testing()
 set(KARMA_REFERENCE_DIR ${CMAKE_SOURCE_DIR}/reference/metoolkit-karma-v1.2 CACHE PATH "Karma 1.2 reference SDK")
