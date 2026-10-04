@@ -237,4 +237,8 @@ char* MEAPI McdTriangleListGetTypeName(McdGeometryID)
     return const_cast<char*>("TriangleList");
 }
 
+void MEAPI McdTriangleListDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
+}
+
 } // extern "C"

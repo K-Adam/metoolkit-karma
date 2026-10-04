@@ -348,4 +348,8 @@ char* MEAPI McdAggregateGetTypeName(McdGeometryID)
     return const_cast<char*>("Aggregate");
 }
 
+void MEAPI McdAggregateDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
+}
+
 } // extern "C"

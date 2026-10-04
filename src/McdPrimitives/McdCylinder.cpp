@@ -107,6 +107,19 @@ MeReal MEAPI McdCylinderGetHalfHeight(McdCylinderID g)
     return P::get(g)->pub.mRz;
 }
 
+// bounds is {minX, maxX, minY, maxY}, the layout the original library writes.
+void MEAPI McdCylinderGetXYAABB(McdGeometry* g, MeMatrix4 tm, MeReal bounds[4])
+{
+    const McdCylinder& c = P::get(g)->pub;
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        MeReal a = tm[2][axis];
+        MeReal half = c.mR * std::sqrt(std::fmax(MeReal(0), 1 - a * a)) + c.mRz * std::fabs(a);
+        bounds[2 * axis] = tm[3][axis] - half;
+        bounds[2 * axis + 1] = tm[3][axis] + half;
+    }
+}
+
 void MEAPI McdCylinderDestroy(McdGeometryID g)
 {
     P::destroy(g);
@@ -120,6 +133,10 @@ void MEAPI McdCylinderUpdateAABB(McdGeometryInstanceID ins, MeMatrix4 finalTM, M
 char* MEAPI McdCylinderGetTypeName(McdGeometryID)
 {
     return const_cast<char*>("Cylinder");
+}
+
+void MEAPI McdCylinderDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
 }
 
 } // extern "C"

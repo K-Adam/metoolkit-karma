@@ -60,4 +60,8 @@ char* MEAPI McdNullGetTypeName(McdGeometryID)
     return const_cast<char*>("Null");
 }
 
+void MEAPI McdNullDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
+}
+
 } // extern "C"

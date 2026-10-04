@@ -101,4 +101,8 @@ char* MEAPI McdPlaneGetTypeName(McdGeometryID)
     return const_cast<char*>("Plane");
 }
 
+void MEAPI McdPlaneDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
+}
+
 } // extern "C"

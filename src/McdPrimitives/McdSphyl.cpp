@@ -104,4 +104,8 @@ char* MEAPI McdSphylGetTypeName(McdGeometryID)
     return const_cast<char*>("Sphyl");
 }
 
+void MEAPI McdSphylDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
+}
+
 } // extern "C"

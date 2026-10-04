@@ -210,6 +210,19 @@ MeReal MEAPI McdConvexMeshGetFatness(McdConvexMeshID mesh)
     return get(mesh)->pub.mFatness;
 }
 
+// bounds is {minX, maxX, minY, maxY} like the primitives. The shape's support includes fatness as its margin.
+void MEAPI McdConvexMeshGetXYAABB(McdConvexMeshID g, MeMatrix4 tm, MeReal bounds[4])
+{
+    btTransform t = toBtTransform(tm);
+    const btConvexHullShape& s = get(g)->shape;
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        btVector3 dir = t.getBasis().getRow(axis);
+        bounds[2 * axis] = (t * s.localGetSupportingVertex(-dir))[axis];
+        bounds[2 * axis + 1] = (t * s.localGetSupportingVertex(dir))[axis];
+    }
+}
+
 int MEAPI McdConvexMeshGetPolygonCount(McdConvexMeshID g)
 {
     return get(g)->pub.mHull.numFace;
@@ -310,6 +323,10 @@ MeI16 MEAPI McdConvexMeshGetMassProperties(McdConvexMeshID mesh, MeMatrix4 relTM
 char* MEAPI McdConvexMeshGetTypeName(McdGeometryID)
 {
     return const_cast<char*>("ConvexMesh");
+}
+
+void MEAPI McdConvexMeshDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
 }
 
 } // extern "C"

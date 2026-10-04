@@ -79,6 +79,20 @@ MeReal* MEAPI McdBoxGetRadii(McdBoxID g)
     return P::get(g)->pub.mR;
 }
 
+// bounds is {minX, maxX, minY, maxY}, the layout the original library writes.
+void MEAPI McdBoxGetXYAABB(McdBoxID g, MeMatrix4 tm, MeReal bounds[4])
+{
+    const MeReal* r = P::get(g)->pub.mR;
+    for (int axis = 0; axis < 2; ++axis)
+    {
+        MeReal half = 0;
+        for (int k = 0; k < 3; ++k)
+            half += std::fabs(tm[k][axis]) * r[k];
+        bounds[2 * axis] = tm[3][axis] - half;
+        bounds[2 * axis + 1] = tm[3][axis] + half;
+    }
+}
+
 void MEAPI McdBoxDestroy(McdGeometryID g)
 {
     P::destroy(g);
@@ -109,6 +123,10 @@ void MEAPI McdBoxMaximumPointLocal(McdBoxID g, MeReal* inDir, MeReal* outPoint)
 char* MEAPI McdBoxGetTypeName(McdGeometryID)
 {
     return const_cast<char*>("Box");
+}
+
+void MEAPI McdBoxDebugDraw(const McdGeometryID, const MeMatrix4, const MeReal[3])
+{
 }
 
 } // extern "C"
