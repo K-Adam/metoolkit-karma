@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <numeric>
 #include <unordered_map>
@@ -6,6 +7,7 @@
 #include <MeMath.h>
 
 #include "MdtImpl.h"
+#include "Unsupported.h"
 
 namespace {
 
@@ -145,6 +147,31 @@ void setDefaults(MdtWorldImpl& w)
     pp.debugOptions = MdtDebugDrawOptions(0);
 }
 
+bool finite(const MeReal* v, int n)
+{
+    for (int i = 0; i < n; ++i)
+        if (!std::isfinite(v[i]))
+            return false;
+    return true;
+}
+
+// Kea reports the bodies of a partition whose solution blew up. Bullet gives no such verdict, so the bodies
+// are checked after the step instead, and no Kea constraints are passed along.
+void checkSim(MdtWorldImpl& w)
+{
+    std::vector<MdtKeaBody*> bad;
+    for (MdtBodyImpl* b : w.bodies)
+    {
+        MdtBody& p = b->pub;
+        const MdtKeaBody& k = p.keaBody;
+        bool ok = finite(k.vel, 3) && finite(k.velrot, 3) && finite(k.qrot, 4) && finite(p.comTM[3], 3);
+        if (MdtBodyIsEnabled(&p) && !ok)
+            bad.push_back(&p.keaBody);
+    }
+    if (!bad.empty() && w.pub.simErrorCallback)
+        w.pub.simErrorCallback(nullptr, bad.data(), (int)bad.size(), w.pub.simErrorUserData);
+}
+
 } // namespace
 
 btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b)
@@ -165,6 +192,7 @@ MdtWorldID MEAPI MdtWorldCreate(const unsigned int maxBodies, const unsigned int
     p.params.massScale = massScale;
     p.params.defaultDensity = massScale / (lengthScale * lengthScale * lengthScale);
     p.toolkitVersionString = "Karma 1.2 (Bullet)";
+    p.simErrorCallback = MdtDefaultSimErrorCallBack;
     setDefaults(*w);
 
     btContactSolverInfo& info = w->world.getSolverInfo();
@@ -225,6 +253,8 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
     for (MdtBodyImpl* b : wi.bodies)
         if (MdtBodyIsEnabled(&b->pub))
             pullBody(*b, stepSize);
+    if (wi.pub.checkSim)
+        checkSim(wi);
 }
 
 int MEAPI MdtWorldGetTotalBodies(const MdtWorldID w)
@@ -425,6 +455,101 @@ void MEAPI MdtWorldForAllConstraints(const MdtWorldID w, MdtConstraintIteratorCB
             enabled.push_back(c);
     for (MdtConstraintID c : enabled)
         cb(c, ccbdata);
+}
+
+// A world as MdtWorldCreate left it, with the same capacities and scales. Callbacks stay registered.
+void MEAPI MdtWorldReCreate(const MdtWorldID w)
+{
+    MdtWorldImpl* wi = impl(w);
+    while (!wi->constraints.empty())
+        MdtConstraintDestroy(wi->constraints.back());
+    while (!wi->bodies.empty())
+        MdtBodyDestroy(&wi->bodies.back()->pub);
+    setDefaults(*wi);
+}
+
+// Karma advances a body by no more than its safe time, but at least minSafeTime, so that it stops short of
+// what it would otherwise pass through. Bullet steps the world as one, so the most restrictive enabled body
+// sets the step for all of them.
+void MEAPI MdtWorldStepSafeTime(const MdtWorldID w, const MeReal stepSize)
+{
+    MeReal h = stepSize;
+    for (MdtBodyImpl* b : impl(w)->bodies)
+        if (MdtBodyIsEnabled(&b->pub))
+            h = std::min(h, std::max(b->pub.safeTime, w->minSafeTime));
+    MdtWorldStep(w, h);
+}
+
+// Bullet manages the solver memory that Kea drew from its pool.
+int MEAPI MdtWorldGetMaxMemoryPoolUsed(const MdtWorldID)
+{
+    return 0;
+}
+
+MeChunk* MEAPI MdtWorldGetKeaPoolChunk(const MdtWorldID)
+{
+    ME_UNSUPPORTED("MdtWorldGetKeaPoolChunk");
+    return nullptr;
+}
+
+MeChunk* MEAPI MdtWorldGetPartitionOutputChunk(const MdtWorldID)
+{
+    ME_UNSUPPORTED("MdtWorldGetPartitionOutputChunk");
+    return nullptr;
+}
+
+MeChunk* MEAPI MdtWorldGetKeaTMChunk(const MdtWorldID)
+{
+    ME_UNSUPPORTED("MdtWorldGetKeaTMChunk");
+    return nullptr;
+}
+
+MeChunk* MEAPI MdtWorldGetKeaConstraintsChunk(const MdtWorldID)
+{
+    ME_UNSUPPORTED("MdtWorldGetKeaConstraintsChunk");
+    return nullptr;
+}
+
+void MEAPI MdtWorldSetKeaDebugRequest(const MdtWorldID, const MdtKeaDebugDataRequest)
+{
+    ME_UNSUPPORTED("MdtWorldSetKeaDebugRequest");
+}
+
+void MEAPI MdtWorldSetDebugDrawing(const MdtWorldID, const MdtDebugDrawOptions) {}
+
+// Kea never runs, so no matrix sizes are ever written to the log.
+void MEAPI MdtWorldSetMatrixSizeLog(const MdtWorldID w, int* const sizeLog, const int logSize)
+{
+    impl(w)->matrixSizeLog = sizeLog;
+    impl(w)->matrixSizeLogSize = logSize;
+}
+
+MeBool MEAPI MdtWorldGetCheckSim(const MdtWorldID w)
+{
+    return w->checkSim;
+}
+
+void MEAPI MdtWorldSetCheckSim(const MdtWorldID w, const MeBool c)
+{
+    w->checkSim = c;
+}
+
+MdtSimErrorCBPtr MEAPI MdtWorldGetSimErrorCB(const MdtWorldID w)
+{
+    return w->simErrorCallback;
+}
+
+void MEAPI MdtWorldSetSimErrorCB(const MdtWorldID w, MdtSimErrorCBPtr cb, void* secbdata)
+{
+    w->simErrorCallback = cb;
+    w->simErrorUserData = secbdata;
+}
+
+void MEAPI MdtDefaultSimErrorCallBack(MdtKeaConstraints*, MdtKeaBody** kb, int nBodies, void*)
+{
+    // MdtBody starts with its MdtKeaBody, so the pointers are the body IDs.
+    for (int i = 0; i < nBodies; ++i)
+        MeWarning(0, "MdtWorldStep: body %p has a non-finite position or velocity", (void*)kb[i]);
 }
 
 } // extern "C"

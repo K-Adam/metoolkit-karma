@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include <MeASELoad.h>
 #include <MeAssetDB.h>
 #include <MdtDefaults.h>
 #include <MdtTypes.h>
@@ -884,6 +885,31 @@ MeFGeometry* MEAPI MeFGeometryCreateCopy(const MeFGeometry* const geometry, MeBo
     if (recurse)
         for (MeFPrimitive* p : items(geometry->nilPrimitive))
             MeFGeometryInsertPrimitive(g, MeFPrimitiveCreateCopy(p, 1));
+    return g;
+}
+
+// Each object in the file becomes a convex primitive over its vertices, named after the object.
+MeFGeometry* MEAPI MeFGeometryCreateFromASE(const char* const name, char* const file, MeReal xScale, MeReal yScale,
+                                           MeReal zScale)
+{
+    MeASEObject* parts = MeASEObjectLoadParts(file, xScale, yScale, zScale, 1);
+    if (!parts)
+        return nullptr;
+    MeFGeometry* g = MeFGeometryCreate(name);
+    for (MeASEObject* o = parts; o; o = o->nextObject)
+    {
+        if (o->numVerts == 0)
+            continue;
+        MeFPrimitive* p = MeFPrimitiveCreate(o->name, kMeFPrimitiveTypeConvex);
+        MeFPrimitiveSetVertexArray(p, o->verts, o->numVerts);
+        MeFGeometryInsertPrimitive(g, p);
+    }
+    MeASEObjectDestroy(parts);
+    if (MeFGeometryGetPrimitiveCount(g) == 0)
+    {
+        MeFGeometryDestroy(g);
+        return nullptr;
+    }
     return g;
 }
 

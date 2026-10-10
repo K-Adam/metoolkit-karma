@@ -2,8 +2,16 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <vector>
 
 #include <MeProfile.h>
+
+// Outside PS2 builds the header turns the tic functions into empty macros. They are still defined here so that
+// code built for the PS2 interface links.
+#undef ticInit
+#undef tic
+#undef ticOutputResults
+#undef ticCleanup
 
 namespace {
 
@@ -27,6 +35,16 @@ struct Profiler
 };
 
 Profiler profiler;
+// Survives MeProfileStartTiming, which only resets the measurements.
+MeProfileOutput output{kMeProfileOutputAverage, 0, 0};
+
+struct TicEvent
+{
+    const char* name;
+    Clock::time_point time;
+};
+
+std::vector<TicEvent> tics;
 
 double ms(Clock::duration d)
 {
@@ -109,9 +127,17 @@ void MEAPI MeProfileStopTimers()
 void MEAPI MeProfileOutputResults()
 {
     int frames = profiler.frames > 0 ? profiler.frames : 1;
-    std::printf("%-32s %12s %12s\n", "section", "last ms", "average ms");
+    // Gnuplot output prints like the normal style, as writing plot files was never requested here.
+    if (output.style == kMeProfileOutputAverage)
+    {
+        std::printf("%-32s %12s\n", "section", "average ms");
+        for (auto& [name, s] : profiler.sections)
+            std::printf("%-32s %12.3f\n", name.c_str(), ms(s.total) / frames);
+        return;
+    }
+    std::printf("%-32s %12s %12s %12s\n", "section", "last ms", "average ms", "total ms");
     for (auto& [name, s] : profiler.sections)
-        std::printf("%-32s %12.3f %12.3f\n", name.c_str(), ms(s.frame), ms(s.total) / frames);
+        std::printf("%-32s %12.3f %12.3f %12.3f\n", name.c_str(), ms(s.frame), ms(s.total) / frames, ms(s.total));
 }
 
 MeReal MEAPI MeProfileGetSectionTime(const char* codeSection)
@@ -132,6 +158,38 @@ MeU64 MEAPI MeProfileGetClockSpeed()
 {
     // MeProfileGetTimerValue counts nanoseconds.
     return 1000000000u;
+}
+
+void MEAPI MeProfileSetOutputParameters(MeProfileOutput o)
+{
+    output = o;
+}
+
+void MEAPI ticInit()
+{
+    tics.clear();
+}
+
+// Names are kept by pointer, as the low overhead interface expects string literals.
+void MEAPI tic(const char* name)
+{
+    tics.push_back({name, Clock::now()});
+}
+
+// Writes each event with the milliseconds since the previous one.
+void MEAPI ticOutputResults(const char* filename)
+{
+    std::FILE* f = std::fopen(filename, "w");
+    if (!f)
+        return;
+    for (size_t i = 0; i < tics.size(); ++i)
+        std::fprintf(f, "%s %.6f\n", tics[i].name ? tics[i].name : "", i ? ms(tics[i].time - tics[i - 1].time) : 0.0);
+    std::fclose(f);
+}
+
+void MEAPI ticCleanup()
+{
+    tics = {};
 }
 
 } // extern "C"

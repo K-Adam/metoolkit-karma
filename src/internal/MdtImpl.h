@@ -69,6 +69,8 @@ struct MdtWorldImpl
     // Contact friction rows, added to the Bullet world for one step like stepManifolds.
     std::vector<std::unique_ptr<btTypedConstraint>> stepConstraints;
     MdtSoftDeltas softDeltas;
+    int* matrixSizeLog = nullptr;
+    int matrixSizeLogSize = 0;
 };
 
 inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>(w); }
