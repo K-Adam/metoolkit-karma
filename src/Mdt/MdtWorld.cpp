@@ -11,53 +11,6 @@
 
 namespace {
 
-// Without MdtBodyEnableNonSphericalInertia, Kea approximates the tensor by a sphere using its largest
-// diagonal element. Bullet keeps a diagonal local inertia, so off-diagonal terms are dropped.
-// ponytail: off-diagonal inertia ignored, needs a principal axis rigid body frame to support.
-btVector3 bulletInertia(const MdtKeaBody& k)
-{
-    btVector3 d(k.I0[0], k.I1[1], k.I2[2]);
-    if (k.flags & MdtKeaBodyFlagIsNonSpherical)
-        return d;
-    btScalar s = d[d.maxAxis()];
-    return btVector3(s, s, s);
-}
-
-// Kea applies damping explicitly as v *= 1 - d h, and turns accumulated impulses into forces over the step.
-void pushBody(MdtBodyImpl& b, MeReal dt)
-{
-    MdtBody& p = b.pub;
-    MdtKeaBody& k = p.keaBody;
-    b.rb.setMassProps(p.mass, bulletInertia(k));
-    b.rb.setFlags(k.flags & MdtKeaBodyFlagAddCoriolisForce ? BT_ENABLE_GYROSCOPIC_FORCE_EXPLICIT : 0);
-    b.rb.setCenterOfMassTransform(toBtTransform(p.comTM));
-    b.rb.setLinearVelocity(toBt(k.vel) * (1 - p.damping * dt));
-    b.rb.setAngularVelocity(toBt(k.velrot) * (1 - p.angularDamping * dt));
-    b.rb.applyCentralForce(toBt(k.force) + toBt(p.impulseLinear) / dt);
-    b.rb.applyTorque(toBt(k.torque) + toBt(p.impulseAngular) / dt);
-}
-
-void pullBody(MdtBodyImpl& b, MeReal dt)
-{
-    MdtBody& p = b.pub;
-    MdtKeaBody& k = p.keaBody;
-    const btTransform& t = b.rb.getCenterOfMassTransform();
-    fromBtTransform(t, p.comTM);
-    btTransform body(t.getBasis(), t.getOrigin() - t.getBasis() * toBt(p.com));
-    fromBtTransform(body, p.bodyTM);
-    fromBtQuat(t.getRotation(), k.qrot);
-    btVector3 v = b.rb.getLinearVelocity(), w = b.rb.getAngularVelocity();
-    fromBt((v - toBt(k.vel)) / dt, k.accel);
-    fromBt((w - toBt(k.velrot)) / dt, k.accelrot);
-    fromBt(v, k.vel);
-    fromBt(w, k.velrot);
-    MdtBodyResetForces(&p);
-    MdtBodyResetImpulses(&p);
-    // The original only ages bodies while auto-disable is on.
-    if (p.world->partitionParams.autoDisable)
-        p.enabledTime += dt;
-}
-
 // An enabled body touching a disabled one wakes it, as Karma does before partitioning.
 void wakeTouchedBodies(MdtWorldImpl& w)
 {
@@ -196,8 +149,8 @@ MdtWorldID MEAPI MdtWorldCreate(const unsigned int maxBodies, const unsigned int
     setDefaults(*w);
 
     btContactSolverInfo& info = w->world.getSolverInfo();
-    // Kea does not clamp the Coriolis term.
-    info.m_maxGyroscopicForce = BT_LARGE_FLOAT;
+    // Kea has no split impulse, and the contact points carrying slip rows use the distance as a target.
+    info.m_splitImpulse = 0;
     // mdtContactPrepare applies the per-contact restitution threshold itself.
     info.m_restitutionVelocityThreshold = 0;
     // Contact manifolds are not part of Bullet's island graph, so islands must not be split.
@@ -234,7 +187,7 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
     updatePartitions(wi);
     for (MdtBodyImpl* b : wi.bodies)
         if (MdtBodyIsEnabled(&b->pub))
-            pushBody(*b, stepSize);
+            mdtBodyPush(*b, stepSize);
     for (MdtConstraintID c : wi.constraints)
         if (wi.enabled.count(c))
             if (const MdtConstraintOps* ops = mdtConstraintOps(c->head.tag); ops && ops->prepare)
@@ -252,7 +205,7 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
     wi.stepConstraints.clear();
     for (MdtBodyImpl* b : wi.bodies)
         if (MdtBodyIsEnabled(&b->pub))
-            pullBody(*b, stepSize);
+            mdtBodyPull(*b, stepSize);
     if (wi.pub.checkSim)
         checkSim(wi);
 }

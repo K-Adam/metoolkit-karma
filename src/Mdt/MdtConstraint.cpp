@@ -29,6 +29,7 @@ public:
         r.fb = getRigidBodyB().getCenterOfMassTransform() * frameB;
         r.h = w.keaParams.stepsize;
         r.gamma = w.keaParams.gamma;
+        r.epsilon = w.keaParams.epsilon;
         // A null second body is the world, which may move at the velocity set on the constraint.
         const MdtConstraintHeader& head = c->head;
         r.worldAng = head.mdtbody[1] ? btVector3(0, 0, 0) : toBt(head.worldAngVel);
@@ -211,9 +212,10 @@ btScalar forcedVelocity(const btRigidBody& body, const btVector3& lin, const btV
 } // namespace
 
 // A spring kp, kd integrated implicitly over h is the constraint with erp = h kp / (h kp + kd) and, in
-// impulse units, cfm C = 1 / (h (h kp + kd)). Bullet's joint iteration only converges for a cfm below the
-// row's effective mass m, which a soft spring exceeds, so the row's regularised impulse is solved here on its
-// own and fixed through its bounds.
+// impulse units, cfm C = 1 / (h (h kp + kd)). As observed in the original, Kea takes the world epsilon off
+// that, down to zero, and then regularises the row by epsilon h in force units like any other, so a larger
+// epsilon stiffens springs. Bullet's joint iteration only converges for a cfm below the row's effective mass m, which a soft
+// spring exceeds, so the row's regularised impulse is solved here on its own and fixed through its bounds.
 // Soft rows see the impulses fixed by earlier joints this step, one Gauss-Seidel sweep, so springs sharing a
 // light body do not each push it the whole way.
 // ponytail: soft rows ignore coupling with hard rows, solve them together if that shows.
@@ -234,7 +236,7 @@ MdtRow* MdtJointRows::lock(const MdtRow& j, btScalar error, btScalar kp, btScala
         return it == softDeltas->end() ? btScalar(0) : lin.dot(it->second.lin) + ang.dot(it->second.ang);
     };
     v += pending(a, r.linA, r.angA) + pending(b, r.linB, r.angB);
-    r.lo = r.hi = (-kp / d * error - v) / (effectiveMass(r) + 1 / (h * d));
+    r.lo = r.hi = (-kp / d * error - v) / (effectiveMass(r) + btMax(1 / d - epsilon, btScalar(0)) / h + epsilon);
     return &r;
 }
 

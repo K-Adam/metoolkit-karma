@@ -82,6 +82,25 @@ void disableIf(MdtBodyID b, bool contactsOnly)
             MdtConstraintDisable(c);
 }
 
+btMatrix3x3 tensor(const MdtKeaBody& k)
+{
+    return btMatrix3x3(k.I0[0], k.I0[1], k.I0[2], k.I1[0], k.I1[1], k.I1[2], k.I2[0], k.I2[1], k.I2[2]);
+}
+
+// The rigid body frame relative to the body frame, and Bullet's diagonal inertia in it. Without
+// MdtBodyEnableNonSphericalInertia, Kea solves with a sphere of the tensor's largest diagonal element, which
+// keeps the body axes. Otherwise the frame turns onto the principal axes.
+btTransform massFrame(const MdtBody& b, btVector3& inertia)
+{
+    btMatrix3x3 d = tensor(b.keaBody), rot = btMatrix3x3::getIdentity();
+    if (b.keaBody.flags & MdtKeaBodyFlagIsNonSpherical)
+        d.diagonalize(rot, btScalar(1e-5), 20);
+    else
+        d = btMatrix3x3::getIdentity() * btMax(d[0][0], btMax(d[1][1], d[2][2]));
+    inertia = btVector3(d[0][0], d[1][1], d[2][2]);
+    return btTransform(rot, toBt(b.com));
+}
+
 } // namespace
 
 void mdtBodyUpdateCom(MdtBody& b)
@@ -90,6 +109,55 @@ void mdtBodyUpdateCom(MdtBody& b)
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 3; ++c)
             b.comTM[3][c] += b.com[r] * b.bodyTM[r][c];
+}
+
+// Kea applies damping explicitly as v *= 1 - d h, and turns accumulated impulses into forces over the step.
+// Its Coriolis torque uses the full tensor even where the solve uses the spherical approximation.
+void mdtBodyPush(MdtBodyImpl& b, MeReal dt)
+{
+    MdtBody& p = b.pub;
+    MdtKeaBody& k = p.keaBody;
+    btVector3 inertia;
+    btTransform body = toBtTransform(p.bodyTM);
+    btTransform frame = massFrame(p, inertia);
+    b.rb.setMassProps(p.mass, inertia);
+    b.rb.setCenterOfMassTransform(body * frame);
+    btVector3 w = toBt(k.velrot) * (1 - p.angularDamping * dt);
+    btVector3 torque = toBt(k.torque) + toBt(p.impulseAngular) / dt;
+    if (k.flags & MdtKeaBodyFlagAddCoriolisForce)
+    {
+        const btMatrix3x3& r = body.getBasis();
+        torque -= w.cross(r * tensor(k) * r.transpose() * w);
+    }
+    b.rb.setLinearVelocity(toBt(k.vel) * (1 - p.damping * dt));
+    b.rb.setAngularVelocity(w);
+    b.rb.applyCentralForce(toBt(k.force) + toBt(p.impulseLinear) / dt);
+    b.rb.applyTorque(torque);
+}
+
+void mdtBodyPull(MdtBodyImpl& b, MeReal dt)
+{
+    MdtBody& p = b.pub;
+    MdtKeaBody& k = p.keaBody;
+    btVector3 inertia;
+    btTransform body = b.rb.getCenterOfMassTransform() * massFrame(p, inertia).inverse();
+    fromBtTransform(body, p.bodyTM);
+    // Kea integrates the quaternion, so it keeps its sign from step to step.
+    btQuaternion q = body.getRotation();
+    if (q.dot(toBtQuat(k.qrot[0], k.qrot[1], k.qrot[2], k.qrot[3])) < 0)
+        q = -q;
+    fromBtQuat(q, k.qrot);
+    mdtBodyUpdateCom(p);
+    btVector3 v = b.rb.getLinearVelocity(), w = b.rb.getAngularVelocity();
+    fromBt((v - toBt(k.vel)) / dt, k.accel);
+    fromBt((w - toBt(k.velrot)) / dt, k.accelrot);
+    fromBt(v, k.vel);
+    fromBt(w, k.velrot);
+    MdtBodyResetForces(&p);
+    MdtBodyResetImpulses(&p);
+    // The original only ages bodies while auto-disable is on.
+    if (p.world->partitionParams.autoDisable)
+        p.enabledTime += dt;
 }
 
 extern "C" {
@@ -107,6 +175,8 @@ MdtBodyID MEAPI MdtBodyCreate(const MdtWorldID w)
     MdtBodyReset(&b->pub);
     b->rb.setUserPointer(&b->pub);
     b->rb.forceActivationState(DISABLE_DEACTIVATION);
+    // mdtBodyPush adds Kea's Coriolis torque itself.
+    b->rb.setFlags(0);
     wi->bodies.push_back(b);
     return &b->pub;
 }
@@ -453,11 +523,9 @@ void MEAPI MdtBodyGetTorque(const MdtBodyID b, MeVector3 v)
 
 MeReal MEAPI MdtBodyGetKineticEnergy(const MdtBodyID b)
 {
-    // The inertia tensor is in the body frame and the angular velocity in the world frame.
-    btVector3 v = toBt(b->keaBody.vel);
-    btVector3 w = toBtTransform(b->bodyTM).getBasis().transpose() * toBt(b->keaBody.velrot);
-    btVector3 Iw(toBt(b->keaBody.I0).dot(w), toBt(b->keaBody.I1).dot(w), toBt(b->keaBody.I2).dot(w));
-    return (b->mass * v.length2() + w.dot(Iw)) / 2;
+    // The original applies the body frame tensor to the world frame angular velocity.
+    btVector3 v = toBt(b->keaBody.vel), w = toBt(b->keaBody.velrot);
+    return (b->mass * v.length2() + w.dot(tensor(b->keaBody) * w)) / 2;
 }
 
 MeReal MEAPI MdtBodyGetEnabledTime(const MdtBodyID b)

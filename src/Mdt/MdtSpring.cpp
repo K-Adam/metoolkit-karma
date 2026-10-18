@@ -2,8 +2,10 @@
 
 namespace {
 
-// The limited position is the distance between the two attachment points. Stops that were never set start
-// at the separation of the first step, so a new spring rests at its initial length.
+// Karma's natural length is added to the separation of the first step, so the limited position is the
+// change in distance between the attachment points since then. Karma's angular Jacobian takes the unit
+// direction scaled by the current separation, so an off-centre spring turns its bodies that many times
+// harder, as observed in the original.
 void rows(MdtConstraintID c, MdtJointRows& r)
 {
     MdtSpringID j = MdtConstraintDCastSpring(c);
@@ -11,9 +13,12 @@ void rows(MdtConstraintID c, MdtJointRows& r)
     btScalar length = d.length();
     btVector3 n = length > SIMD_EPSILON ? d / length : r.axisA(0);
     MdtBclLimit& l = j->limit;
-    if (!l.bPositionInitialised && l.limit[0].stop == 0 && l.limit[1].stop == 0)
-        l.limit[0].stop = l.limit[1].stop = length;
-    mdtLimitRows(r, l, r.linear(n, pa, pb), length);
+    if (!l.bPositionInitialised)
+        l.offset -= length;
+    MdtRow dof = r.linear(n, pa, pb);
+    dof.angA *= length;
+    dof.angB *= length;
+    mdtLimitRows(r, l, dof, length);
 }
 
 const MdtConstraintOps ops = mdtJointOps<MdtSpring>(rows);

@@ -85,7 +85,7 @@ The original libraries were built with a 2002 compiler against `msvcrt.dll`. `ms
 |------|-----------|-------|
 | Viewer | MeViewer2, MeApp | Deferred until a renderer is chosen. `*DebugDraw` functions wait on it too. |
 | Solver internals | MdtKea, MdtBcl, MdtPartition, MdtMainLoop, MdtUserConstraint | Expose Karma's own solver, which Bullet replaces. User constraints would need an `MdtBclAddConstraintFn` adapter. |
-| Fidelity | Mdt | Contact slip and adhesion are stored but not simulated, off-diagonal inertia is dropped, and soft joint rows are solved one at a time. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
+| Fidelity | Mdt | Soft joint rows are solved one at a time, and Kea's epsilon softening of hard joint rows is not applied. A very soft slip row with a finite friction bound is solved stiffer than in Kea. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
 | Assets | MeAssetDBXMLIO | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. |
 | Misc | MeGlobals, McdFrame, Mst | MeASELoad, McdBatch, McduDebugDraw, McduRequestTable. `MstBridgeStepAll` is declared but absent from the original library. |
 

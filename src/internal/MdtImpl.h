@@ -83,6 +83,9 @@ void mdtContactPrepare(MdtWorldImpl& w, MdtContactID c);
 void mdtContactCollectForces(MdtWorldImpl& w, MeReal dt);
 
 void mdtBodyUpdateCom(MdtBody& b);
+// Copy an enabled body's state into its rigid body before a step, and back after it.
+void mdtBodyPush(MdtBodyImpl& b, MeReal dt);
+void mdtBodyPull(MdtBodyImpl& b, MeReal dt);
 
 // One constraint equation J v + cfm lambda = rhs, solved for an impulse lambda in [lo, hi].
 struct MdtRow
@@ -99,7 +102,7 @@ struct MdtJointRows
     const btRigidBody* a;
     const btRigidBody* b;
     btTransform fa, fb;
-    btScalar h, gamma;
+    btScalar h, gamma, epsilon;
     // Velocity of a world body B at the world origin, and its angular velocity.
     btVector3 worldLin{0, 0, 0}, worldAng{0, 0, 0};
     MdtSoftDeltas* softDeltas = nullptr;

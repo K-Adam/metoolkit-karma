@@ -2,7 +2,7 @@
 
 #include "MdtImpl.h"
 
-// Karma uses one row per limited degree of freedom: the limit row while at or beyond a stop, otherwise the
+// Karma uses one row per limited degree of freedom: the limit row while beyond a stop, otherwise the
 // motor or the lock.
 void mdtLimitRows(MdtJointRows& r, MdtBclLimit& l, const MdtRow& dof, btScalar position)
 {
@@ -13,7 +13,7 @@ void mdtLimitRows(MdtJointRows& r, MdtBclLimit& l, const MdtRow& dof, btScalar p
     l.bPositionInitialised = 1;
     l.overshoot = !l.bLimited ? 0 : pos > hi ? pos - hi : pos < lo ? pos - lo : 0;
 
-    if (l.bLimited && (pos >= hi || pos <= lo))
+    if (l.bLimited && (pos > hi || pos < lo))
     {
         bool upper = pos - hi >= lo - pos;
         const MdtBclSingleLimit& sl = l.limit[upper];
