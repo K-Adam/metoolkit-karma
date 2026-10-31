@@ -373,8 +373,6 @@ void setProperty(MeFJoint* j, MeFJointProperty p, Kind want, T value)
 
 extern "C" {
 
-/* asset database */
-
 MeAssetDB* MEAPI MeAssetDBCreate()
 {
     MeAssetDB* db = static_cast<MeAssetDB*>(std::calloc(1, sizeof(MeAssetDB)));
@@ -462,8 +460,6 @@ void MEAPI MeAssetDBRemoveAsset(MeFAsset* const asset)
     --asset->db->assetCount;
     asset->db = nullptr;
 }
-
-/* asset */
 
 MeFAsset* MEAPI MeFAssetCreate(const char* const name, int id)
 {
@@ -865,8 +861,6 @@ void MEAPI MeFAssetSetLengthScale(MeFAsset* const asset, MeReal scale)
     asset->lengthScale = scale;
 }
 
-/* geometry */
-
 MeFGeometry* MEAPI MeFGeometryCreate(const char* const name)
 {
     MeFGeometry* g = static_cast<MeFGeometry*>(std::calloc(1, sizeof(MeFGeometry)));
@@ -1020,8 +1014,6 @@ void MEAPI MeFGeometryScale(MeFGeometry* const geometry, MeReal scale)
     geometry->graphicScale *= scale;
     MeVector3Scale(geometry->graphicOffset, scale);
 }
-
-/* primitive */
 
 MeFPrimitive* MEAPI MeFPrimitiveCreate(const char* const name, MeFPrimitiveType type)
 {
@@ -1207,8 +1199,6 @@ void MEAPI MeFPrimitiveScale(MeFPrimitive* const p, MeReal scale)
         MeVector3Scale(p->vertices[i], scale);
     MeVector3Scale(p->tm[3], scale);
 }
-
-/* model */
 
 MeFModel* MEAPI MeFModelCreate(const char* const name, MeFModelType type)
 {
@@ -1401,8 +1391,6 @@ void MEAPI MeFModelScale(MeFModel* const model, MeReal scale)
         i *= scale * scale;
 }
 
-/* asset part */
-
 MeFAssetPart* MEAPI MeFAssetPartCreate(const char* const name, MeFModel* const model, const MeMatrix4Ptr relTM)
 {
     MeFAssetPart* p = static_cast<MeFAssetPart*>(std::calloc(1, sizeof(MeFAssetPart)));
@@ -1583,8 +1571,6 @@ void MEAPI MeFAssetPartEnableAllCollisions(const MeFAssetPart* const part)
         setBit(a, i, part->index, false);
     }
 }
-
-/* joint */
 
 void MEAPI MeFJointSetGenericDefaults(MeFJoint* const j)
 {

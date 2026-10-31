@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <cstring>
 
 #include <MeMath.h>
 
@@ -126,10 +125,8 @@ void mdtConstraintInit(MdtConstraintHeader& head, MdtWorldID w, int tag)
 
 void mdtConstraintResetFrames(MdtConstraintHeader& head)
 {
-    std::memset(head.ref1, 0, sizeof(MeMatrix4));
-    std::memset(head.ref2, 0, sizeof(MeMatrix4));
-    for (int i = 0; i < 4; ++i)
-        head.ref1[i][i] = head.ref2[i][i] = 1;
+    MeMatrix4TMMakeIdentity(head.ref1);
+    MeMatrix4TMMakeIdentity(head.ref2);
 }
 
 btTransform mdtBodyTransform(MdtBodyID b)
@@ -147,12 +144,12 @@ void mdtSetRef(MdtConstraintID c, unsigned i, const btTransform& t)
     fromBtTransform(t, i == 0 ? c->head.ref1 : c->head.ref2);
 }
 
-// Matches the orthogonal axis Karma picks when only the primary axis is given.
 btTransform mdtFrameWorld(MdtConstraintID c, unsigned i)
 {
     return mdtBodyTransform(c->head.mdtbody[i]) * mdtRef(c, i);
 }
 
+// Matches the orthogonal axis Karma picks when only the primary axis is given.
 btVector3 mdtOrthogonal(const btVector3& p)
 {
     btVector3 e = btFabs(p.x()) > btFabs(p.y()) ? btVector3(0, 1, 0) : btVector3(1, 0, 0);
@@ -218,7 +215,7 @@ btScalar forcedVelocity(const btRigidBody& body, const btVector3& lin, const btV
 // spring exceeds, so the row's regularised impulse is solved here on its own and fixed through its bounds.
 // Soft rows see the impulses fixed by earlier joints this step, one Gauss-Seidel sweep, so springs sharing a
 // light body do not each push it the whole way.
-// ponytail: soft rows ignore coupling with hard rows, solve them together if that shows.
+// Soft rows ignore coupling with hard rows, solve them together if that shows.
 MdtRow* MdtJointRows::lock(const MdtRow& j, btScalar error, btScalar kp, btScalar kd)
 {
     btScalar d = h * kp + kd;
@@ -480,24 +477,24 @@ void MEAPI MdtConstraintBodyGetAxesRel(const MdtConstraintID c, const unsigned i
 
 void MEAPI MdtConstraintGetWorldLinearVelocity(const MdtConstraintID c, MeVector3 lv)
 {
-    fromBt(toBt(c->head.worldLinVel), lv);
+    MeVector3Copy(lv, c->head.worldLinVel);
 }
 
 void MEAPI MdtConstraintGetWorldAngularVelocity(const MdtConstraintID c, MeVector3 av)
 {
-    fromBt(toBt(c->head.worldAngVel), av);
+    MeVector3Copy(av, c->head.worldAngVel);
 }
 
 void MEAPI MdtConstraintSetWorldLinearVelocity(const MdtConstraintID c, const MeReal vx, const MeReal vy,
                                                const MeReal vz)
 {
-    fromBt(btVector3(vx, vy, vz), c->head.worldLinVel);
+    MeVector3Set(c->head.worldLinVel, vx, vy, vz);
 }
 
 void MEAPI MdtConstraintSetWorldAngularVelocity(const MdtConstraintID c, const MeReal ax, const MeReal ay,
                                                 const MeReal az)
 {
-    fromBt(btVector3(ax, ay, az), c->head.worldAngVel);
+    MeVector3Set(c->head.worldAngVel, ax, ay, az);
 }
 
 void MEAPI MdtConstraintBodySetPosition(const MdtConstraintID c, const unsigned int bodyindex, const MeReal x,

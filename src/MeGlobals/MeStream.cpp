@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <climits>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -21,15 +24,24 @@ const char* modeString(MeOpenMode_enum mode)
     }
 }
 
-void reserve(MeStream s, unsigned int needed)
+// The buffer is indexed by unsigned int, so sizes are worked out wider and refused past that range.
+bool reserve(MeStream s, unsigned long long needed)
 {
     if (needed <= s->bufSize)
-        return;
-    unsigned int size = s->bGrowFast ? (s->bufSize ? s->bufSize : 64) : needed;
+        return true;
+    const unsigned long long limit = UINT_MAX;
+    if (needed > limit)
+        return false;
+    unsigned long long size = s->bGrowFast ? (s->bufSize ? s->bufSize : 64) : needed;
     while (size < needed)
         size *= 2;
-    s->buffer = static_cast<char*>(std::realloc(s->buffer, size));
-    s->bufSize = size;
+    size = std::min(size, limit);
+    auto* grown = static_cast<char*>(std::realloc(s->buffer, (size_t)size));
+    if (!grown)
+        return false;
+    s->buffer = grown;
+    s->bufSize = (unsigned int)size;
+    return true;
 }
 
 } // namespace
@@ -134,10 +146,13 @@ size_t MEAPI MeStreamWrite(void* buffer, size_t size, size_t count, MeStream str
 {
     if (!stream->bUseMemblock)
         return std::fwrite(buffer, size, count, static_cast<std::FILE*>(stream->handle));
-    unsigned int bytes = static_cast<unsigned int>(size * count);
-    reserve(stream, stream->curIndex + bytes);
+    if (size && count > SIZE_MAX / size)
+        return 0;
+    const unsigned long long bytes = (unsigned long long)size * count;
+    if (!reserve(stream, stream->curIndex + bytes))
+        return 0;
     std::memcpy(stream->buffer + stream->curIndex, buffer, bytes);
-    stream->curIndex += bytes;
+    stream->curIndex += (unsigned int)bytes;
     if (stream->curIndex > stream->bufLength)
         stream->bufLength = stream->curIndex;
     return count;

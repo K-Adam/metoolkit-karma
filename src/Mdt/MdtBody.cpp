@@ -194,8 +194,8 @@ void MEAPI MdtBodyReset(const MdtBodyID b)
     b->model = model;
     b->keaBody.tag = MdtKeaBODYVER1;
     b->keaBody.qrot[0] = 1;
-    for (int i = 0; i < 4; ++i)
-        b->bodyTM[i][i] = b->comTM[i][i] = 1;
+    MeMatrix4TMMakeIdentity(b->bodyTM);
+    MeMatrix4TMMakeIdentity(b->comTM);
     b->keaBody.fastSpinAxis[0] = MDTBODY_DEFAULT_FAST_SPIN_X;
     b->keaBody.fastSpinAxis[1] = MDTBODY_DEFAULT_FAST_SPIN_Y;
     b->keaBody.fastSpinAxis[2] = MDTBODY_DEFAULT_FAST_SPIN_Z;
@@ -536,11 +536,8 @@ MeReal MEAPI MdtBodyGetEnabledTime(const MdtBodyID b)
 // The original returns the body frame relative to the centre of mass, translation only.
 void MEAPI MdtBodyGetCenterOfMassRelativeTransform(const MdtBodyID b, MeMatrix4 t)
 {
-    std::memset(t, 0, sizeof(MeMatrix4));
-    for (int i = 0; i < 4; ++i)
-        t[i][i] = 1;
-    for (int i = 0; i < 3; ++i)
-        t[3][i] = -b->com[i];
+    MeMatrix4TMMakeIdentity(t);
+    MeMatrix4TMSetPosition(t, -b->com[0], -b->com[1], -b->com[2]);
 }
 
 // Only the translation is used, as in the original.
@@ -618,7 +615,7 @@ MdtBodyID MEAPI MdtBodyGetFirst(const MdtWorldID w)
     return wi->bodies.empty() ? nullptr : &wi->bodies.front()->pub;
 }
 
-// ponytail: linear search per call, keep an index in MdtBodyImpl if worlds grow large.
+// Linear search per call, keep an index in MdtBodyImpl if worlds grow large.
 MdtBodyID MEAPI MdtBodyGetNext(const MdtBodyID b)
 {
     std::vector<MdtBodyImpl*>& bodies = impl(b->world)->bodies;

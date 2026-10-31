@@ -1,23 +1,7 @@
-﻿#include <MeAssetDBXMLIO.h>
-#include <MeAssetFactory.h>
+﻿#include <MeAssetFactory.h>
 #include <Mst.h>
 
-#include "check.h"
-
-static const char* kRagDolls = KARMA_REFERENCE_DIR "/KarmaData/RagDolls.ka";
-
-static MeAssetDB* load(const char* path)
-{
-    MeStream stream = MeStreamOpen(path, kMeOpenModeRDONLY);
-    if (!stream)
-        return nullptr;
-    MeAssetDB* db = MeAssetDBCreate();
-    MeAssetDBXMLInput* input = MeAssetDBXMLInputCreate(db, NULL);
-    CHECK(MeAssetDBXMLInputRead(input, stream));
-    MeAssetDBXMLInputDestroy(input);
-    MeStreamClose(stream);
-    return db;
-}
+#include "asset_load.h"
 
 static MdtBodyID bodyOf(MeAssetInstance* ins, char* part)
 {

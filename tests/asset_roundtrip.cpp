@@ -1,23 +1,7 @@
 #include <cstdio>
 #include <cstring>
 
-#include <MeAssetDBXMLIO.h>
-
-#include "check.h"
-
-static const char* kRagDolls = KARMA_REFERENCE_DIR "/KarmaData/RagDolls.ka";
-
-static MeAssetDB* load(const char* path)
-{
-    MeStream stream = MeStreamOpen(path, kMeOpenModeRDONLY);
-    CHECK(stream);
-    MeAssetDB* db = MeAssetDBCreate();
-    MeAssetDBXMLInput* input = MeAssetDBXMLInputCreate(db, NULL);
-    CHECK(MeAssetDBXMLInputRead(input, stream));
-    MeAssetDBXMLInputDestroy(input);
-    MeStreamClose(stream);
-    return db;
-}
+#include "asset_load.h"
 
 static bool sameString(const char* a, const char* b)
 {
@@ -164,12 +148,9 @@ int main()
 {
     checkDuplicateNames();
 
-    if (std::FILE* f = std::fopen(kRagDolls, "r"))
-        std::fclose(f);
-    else
-        return 77;
-
     MeAssetDB* original = load(kRagDolls);
+    if (!original)
+        return 77;
     CHECK(MeAssetDBGetAssetCount(original) == 2);
     MeFAsset* soldier = MeAssetDBLookupAssetByName(original, "soldier2");
     CHECK(soldier);
@@ -221,6 +202,7 @@ int main()
     MeStreamClose(out);
 
     MeAssetDB* reloaded = load(saved);
+    CHECK(reloaded);
     CHECK(MeAssetDBGetAssetCount(reloaded) == MeAssetDBGetAssetCount(original));
     MeFAssetIt it;
     MeAssetDBInitAssetIterator(original, &it);

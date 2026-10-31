@@ -1,5 +1,20 @@
 #include "McdImpl.h"
 
+namespace {
+
+template <class F>
+void withInstance(McdGeometryID g, MeMatrix4 tm, F f)
+{
+    McdGeometryInstance ins{};
+    ins.mGeometry = g;
+    ins.mTM = tm;
+    McdGeometryInstanceUpdateAABB(&ins, tm, 1);
+    f(&ins);
+    mcdFreeChildInstances(&ins);
+}
+
+} // namespace
+
 extern "C" {
 
 void MEAPI McdGeometryInit(McdGeometryID g, McdFramework* frame, MeI16 typeId)
@@ -72,22 +87,12 @@ McdLineSegIntersectFnPtr MEAPI McdGeometryGetLineSegIntersectFnPtr(McdGeometryID
 
 void MEAPI McdGeometryGetAABB(McdGeometryID g, MeMatrix4 tm, MeVector3 minCorner, MeVector3 maxCorner)
 {
-    McdGeometryInstance ins{};
-    ins.mGeometry = g;
-    ins.mTM = tm;
-    McdGeometryInstanceUpdateAABB(&ins, tm, 1);
-    McdGeometryInstanceGetAABB(&ins, minCorner, maxCorner);
-    mcdFreeChildInstances(&ins);
+    withInstance(g, tm, [&](McdGeometryInstanceID ins) { McdGeometryInstanceGetAABB(ins, minCorner, maxCorner); });
 }
 
 void MEAPI McdGeometryMaximumPoint(McdGeometryID g, MeMatrix4 tm, MeReal* const inDir, MeReal* const outPoint)
 {
-    McdGeometryInstance ins{};
-    ins.mGeometry = g;
-    ins.mTM = tm;
-    McdGeometryInstanceUpdateAABB(&ins, tm, 1);
-    McdGeometryInstanceMaximumPoint(&ins, inDir, outPoint);
-    mcdFreeChildInstances(&ins);
+    withInstance(g, tm, [&](McdGeometryInstanceID ins) { McdGeometryInstanceMaximumPoint(ins, inDir, outPoint); });
 }
 
 void MEAPI McdGeometryDebugDraw(const McdGeometryID geom, const MeMatrix4Ptr tm, const MeReal colour[3])

@@ -3,12 +3,6 @@
 
 #include "McdImpl.h"
 
-namespace {
-
-const MeReal kIdentity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-
-} // namespace
-
 void mcdModelSync(McdModelID m)
 {
     if (m->mRelTM && m->mRefTM)
@@ -45,7 +39,7 @@ McdModelID MEAPI McdModelCreate(McdGeometryID g)
     auto* mi = new McdModelImpl();
     McdModel& m = mi->pub;
     McdFrameworkID f = g->frame;
-    std::memcpy(mi->ownTM, kIdentity, sizeof(kIdentity));
+    MeMatrix4TMMakeIdentity(mi->ownTM);
     m.frame = f;
     m.mPadding = f->mDefaultPadding;
     m.mSpaceID = -1;
@@ -130,7 +124,7 @@ void MEAPI McdModelReset(McdModelID cm)
     }
     McdModelImpl* mi = impl(cm);
     McdModel& m = mi->pub;
-    std::memcpy(mi->ownTM, kIdentity, sizeof(kIdentity));
+    MeMatrix4TMMakeIdentity(mi->ownTM);
     m.linearVelocity = m.angularVelocity = nullptr;
     m.mPadding = m.frame->mDefaultPadding;
     m.sortKey = 0;

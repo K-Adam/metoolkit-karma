@@ -4,12 +4,6 @@
 
 namespace {
 
-// A null body stands for the world frame.
-btTransform frame(MdtBodyID b)
-{
-    return b ? toBtTransform(b->bodyTM) : btTransform::getIdentity();
-}
-
 void diagonal(MeMatrix3 i, MeReal x, MeReal y, MeReal z)
 {
     std::memset(i, 0, sizeof(MeMatrix3));
@@ -24,14 +18,14 @@ extern "C" {
 
 void MEAPI MdtConvertVector(const MdtBodyID from_body, const MeVector3 f, const MdtBodyID to_body, MeVector3 t)
 {
-    btVector3 world = frame(from_body).getBasis() * toBt(f);
-    fromBt(frame(to_body).getBasis().transpose() * world, t);
+    btVector3 world = mdtBodyTransform(from_body).getBasis() * toBt(f);
+    fromBt(mdtBodyTransform(to_body).getBasis().transpose() * world, t);
 }
 
 void MEAPI MdtConvertPositionVector(const MdtBodyID from_body, const MeVector3 f, const MdtBodyID to_body,
                                     MeVector3 t)
 {
-    fromBt(frame(to_body).invXform(frame(from_body) * toBt(f)), t);
+    fromBt(mdtBodyTransform(to_body).invXform(mdtBodyTransform(from_body) * toBt(f)), t);
 }
 
 void MEAPI MdtMakeInertiaTensorSphere(const MeReal mass, const MeReal radius, MeMatrix3 i)

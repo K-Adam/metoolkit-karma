@@ -68,7 +68,7 @@ public:
 
     // Bullet's joint iteration only converges for a cfm below the row's effective mass, so a row gets at
     // most half of that.
-    // ponytail: a bounded slip row softer than that is solved too stiff, needs its own solve if that shows.
+    // A bounded slip row softer than that is solved too stiff, needs its own solve if that shows.
     void getInfo2(btConstraintInfo2* info) override
     {
         for (int i = 0; i < m_r.n; ++i)

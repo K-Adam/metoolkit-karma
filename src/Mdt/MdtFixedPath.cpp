@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 namespace {
@@ -66,13 +68,13 @@ void MEAPI MdtFixedPathSetPosition(const MdtFixedPathID j, const unsigned int bo
                                    const MeReal y, const MeReal z)
 {
     MdtConstraintBodySetPositionRel(mdtQua(j), bodyindex, x, y, z);
-    fromBt(btVector3(x, y, z), bodyindex ? j->pos2 : j->pos1);
+    MeVector3Set(bodyindex ? j->pos2 : j->pos1, x, y, z);
 }
 
 void MEAPI MdtFixedPathSetVelocity(const MdtFixedPathID j, const unsigned int bodyindex, const MeReal dx,
                                    const MeReal dy, const MeReal dz)
 {
-    fromBt(btVector3(dx, dy, dz), bodyindex ? j->vel2 : j->vel1);
+    MeVector3Set(bodyindex ? j->vel2 : j->vel1, dx, dy, dz);
 }
 
 } // extern "C"

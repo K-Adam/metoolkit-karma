@@ -6,14 +6,14 @@
 
 namespace {
 
-McdModelID modelOf(btBroadphaseProxy* proxy)
-{
-    return static_cast<McdModelID>(static_cast<btCollisionObject*>(proxy->m_clientObject)->getUserPointer());
-}
-
 McdModelID modelOf(btCollisionObject* o)
 {
     return static_cast<McdModelID>(o->getUserPointer());
+}
+
+McdModelID modelOf(btBroadphaseProxy* proxy)
+{
+    return modelOf(static_cast<btCollisionObject*>(proxy->m_clientObject));
 }
 
 McdModelKey orderedKey(McdModelID a, McdModelID b)

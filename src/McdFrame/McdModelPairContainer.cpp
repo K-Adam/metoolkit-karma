@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 #include <initializer_list>
 
@@ -31,6 +32,8 @@ void MEAPI McdModelPairContainerInit(McdModelPairContainer* c, McdModelPair** ar
 
 McdModelPairContainer* MEAPI McdModelPairContainerCreate(int size)
 {
+    // Filling an empty container never makes progress, so callers looping until done would spin forever.
+    size = std::max(size, 1);
     auto* c = new McdModelPairContainer{};
     McdModelPairContainerInit(c, new McdModelPair*[size], size);
     return c;

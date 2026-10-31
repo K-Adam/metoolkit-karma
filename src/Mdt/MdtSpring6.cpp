@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 // The header also defines this name as a macro over MdtConstraintGetPosition.
@@ -119,13 +121,13 @@ void MEAPI MdtSpring6SetAngularDamping(const MdtSpring6ID j, int axisindex, MeRe
 
 void MEAPI MdtSpring6SetWorldLinearVelocity(const MdtSpring6ID j, MeReal vx, MeReal vy, MeReal vz)
 {
-    fromBt(btVector3(vx, vy, vz), j->worldLinearVel);
+    MeVector3Set(j->worldLinearVel, vx, vy, vz);
     MdtConstraintSetWorldLinearVelocity(mdtQua(j), vx, vy, vz);
 }
 
 void MEAPI MdtSpring6SetWorldAngularVelocity(const MdtSpring6ID j, MeReal vx, MeReal vy, MeReal vz)
 {
-    fromBt(btVector3(vx, vy, vz), j->worldAngularVel);
+    MeVector3Set(j->worldAngularVel, vx, vy, vz);
     MdtConstraintSetWorldAngularVelocity(mdtQua(j), vx, vy, vz);
 }
 

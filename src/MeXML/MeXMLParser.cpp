@@ -14,8 +14,8 @@ namespace {
 struct InputImpl
 {
     MeXMLInput pub;
-    int depth;        // elements opened and not yet closed
-    bool selfClosing; // the last start tag was <name/>
+    int depth;
+    bool selfClosing;
 };
 
 InputImpl* impl(MeXMLInput* in)
@@ -226,6 +226,11 @@ double convert<double>(const char* s, char** end)
     return std::strtod(s, end);
 }
 
+char* skipSpace(char* s)
+{
+    return s + std::strspn(s, " \t\r\n");
+}
+
 template <class T>
 MeXMLError parseArray(MeXMLInput* in, const MeXMLHandler* h, void* data, unsigned int count)
 {
@@ -241,9 +246,7 @@ MeXMLError parseArray(MeXMLInput* in, const MeXMLHandler* h, void* data, unsigne
             return fail(in, MeXMLErrorInvalidValue, "too few values");
         char* end;
         out[i] = convert<T>(cursor, &end);
-        while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')
-            ++end;
-        if (end == cursor || *end)
+        if (end == cursor || *skipSpace(end))
             return fail(in, MeXMLErrorInvalidValue, "invalid number");
         cursor = rest;
     }
@@ -256,8 +259,7 @@ extern "C" {
 
 int MEAPI MeXMLParseComma(char* in, char** out)
 {
-    while (*in == ' ' || *in == '\t' || *in == '\r' || *in == '\n')
-        ++in;
+    in = skipSpace(in);
     if (!*in)
     {
         *out = in;

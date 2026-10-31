@@ -8,8 +8,7 @@ void destroyGroup(MdtConstraintID c)
     MdtWorldID w = g->head.world;
     if (w->contactGroupDestroyCallback)
         w->contactGroupDestroyCallback(g);
-    while (g->first)
-        MdtContactGroupDestroyContact(g, g->first);
+    MdtContactGroupReset(g);
     delete g;
 }
 
@@ -54,12 +53,12 @@ void MEAPI MdtContactGroupReset(const MdtContactGroupID g)
 
 MdtConstraintID MEAPI MdtContactGroupQuaConstraint(const MdtContactGroupID g)
 {
-    return reinterpret_cast<MdtConstraintID>(g);
+    return mdtQua(g);
 }
 
 MdtContactGroupID MEAPI MdtConstraintDCastContactGroup(const MdtConstraintID c)
 {
-    return c && c->head.tag == MdtBclCONTACTGROUP ? reinterpret_cast<MdtContactGroupID>(c) : nullptr;
+    return mdtDCast<MdtContactGroup>(c, MdtBclCONTACTGROUP);
 }
 
 MdtContactID MEAPI MdtContactGroupGetFirstContact(MdtContactGroupID g)

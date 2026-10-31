@@ -92,8 +92,9 @@ void MEAPI MstModelAndBodyDestroy(const McdModelID m)
 {
     MdtBodyID b = McdModelGetBody(m);
     McdSpaceRemoveModel(m);
-    McdModelDestroy(m);
+    // The body goes first: its disable callback still reads the model.
     MdtBodyDestroy(b);
+    McdModelDestroy(m);
 }
 
 McdModelID MEAPI MstFixedModelCreate(const MstUniverseID u, const McdGeometryID g, MeMatrix4Ptr transformation)

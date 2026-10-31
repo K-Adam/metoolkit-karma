@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <cmath>
 #include <vector>
 
 #include <BulletCollision/CollisionShapes/btTriangleShape.h>

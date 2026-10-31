@@ -2,7 +2,12 @@
 
 A re-implementation of the **MathEngine Karma 1.2** physics engine (rigid-body dynamics, collision detection, constraints), written against its original public C API, with [Bullet 3](https://github.com/bulletphysics/bullet3) as the backend.
 
-**Status:** most of the API is implemented: collision primitives, convex meshes and aggregates, bodies, contacts with Karma's friction model, all joint types, XML and the asset database. Run `python tools/api_coverage.py` for per-library progress.
+**Status:** every function declared in the headers is defined (`python tools/api_coverage.py`). This includes:
+- collision: primitives, convex meshes and aggregates
+- dynamics: bodies, contacts with Karma's friction, slip and adhesion, every joint type, and user constraints
+- support: XML, the asset database and factory, and the ASE loader
+
+It is meant to be used as a library. The demo and viewer parts are stubs (see below).
 
 ## Layout
 
@@ -77,17 +82,20 @@ A git worktree has no submodule checkout, so there pass `-DKARMA_REFERENCE_DIR=<
 
 The original libraries were built with a 2002 compiler against `msvcrt.dll`. `msvcrt_shim.c` supplies the old stdio imports that today's CRT no longer exports, and sends their messages to stderr instead of modal dialogs.
 
-## Remaining work
+## Stubs
 
-`python tools/api_coverage.py --missing <Library>` lists what each library still lacks.
+- **Viewer and debug drawing:** MeViewer2, MeApp and every `*DebugDraw` function are silent no-ops. Pointer returns are NULL and numeric returns are 0.
+- **Karma's solver internals:** MdtKea, the `MdtBclAdd*` functions, MdtPartition, MdtMainLoop and the `MdtWorldGet*Chunk` family. They return neutral values and warn once on stderr through `ME_UNSUPPORTED`, because Bullet replaces that solver.
+- **User constraints are real:** the four `MdtBcl` row bookkeeping helpers that user functions call are implemented, and the Kea rows a user function writes are converted into Bullet rows.
+- `MstBridgeStepAll` is declared but absent from the original library, so it is stubbed too.
 
-| Area | Libraries | Notes |
-|------|-----------|-------|
-| Viewer | MeViewer2, MeApp | Deferred until a renderer is chosen. `*DebugDraw` functions wait on it too. |
-| Solver internals | MdtKea, MdtBcl, MdtPartition, MdtMainLoop, MdtUserConstraint | Expose Karma's own solver, which Bullet replaces. User constraints would need an `MdtBclAddConstraintFn` adapter. |
-| Fidelity | Mdt | Soft joint rows are solved one at a time, and Kea's epsilon softening of hard joint rows is not applied. A very soft slip row with a finite friction bound is solved stiffer than in Kea. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
-| Assets | MeAssetDBXMLIO | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. |
-| Misc | MeGlobals, McdFrame, Mst | MeASELoad, McdBatch, McduDebugDraw, McduRequestTable. `MstBridgeStepAll` is declared but absent from the original library. |
+## Known gaps
+
+| Area | Notes |
+|------|-------|
+| Dynamics | Soft joint rows are solved one at a time, and Kea's epsilon softening of hard joint rows is not applied. A very soft slip row with a finite friction bound is solved stiffer than in Kea. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
+| Assets | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. The asset factory caches geometry by `MeFGeometry` address. |
+| Teardown | Mst contact groups point at Mcd pairs, so the world must be destroyed before the space, as `MstUniverseDestroy` does. |
 
 Each new library target is one `karma_add_library(<Name> DEPS ...)` line in `CMakeLists.txt` plus a `src/<Name>/` directory.
 

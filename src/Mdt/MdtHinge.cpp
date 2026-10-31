@@ -2,6 +2,15 @@
 
 namespace {
 
+// Continues an angle in [-pi, pi] from the previous continuous value, so positions can span several turns.
+btScalar unwrap(btScalar angle, btScalar previous) { return previous + btNormalizeAngle(angle - previous); }
+
+// The limit's raw position from the previous step, for unwrapping angles.
+btScalar limitPrevious(const MdtBclLimit& l, btScalar fallback)
+{
+    return l.bPositionInitialised ? l.position - l.offset : fallback;
+}
+
 // The hinge angle is the rotation of body 1 relative to body 2 about the hinge axis, measured between the
 // orthogonal axes of the two constraint frames.
 void rows(MdtConstraintID c, MdtJointRows& r)
@@ -11,7 +20,7 @@ void rows(MdtConstraintID c, MdtJointRows& r)
     r.lockAxis();
     btVector3 a = r.axisA(0), ya = r.axisA(1), yb = r.axisB(1);
     btScalar angle = btAtan2(yb.cross(ya).dot(a), yb.dot(ya));
-    mdtLimitRows(r, j->limit, r.angular(a), mdtUnwrap(angle, mdtLimitPrevious(j->limit, angle)));
+    mdtLimitRows(r, j->limit, r.angular(a), unwrap(angle, limitPrevious(j->limit, angle)));
 }
 
 const MdtConstraintOps ops = mdtJointOps<MdtHinge>(rows);

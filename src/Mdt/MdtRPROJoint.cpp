@@ -1,5 +1,7 @@
 #include <algorithm>
 
+#include <MeMath.h>
+
 #include "MdtImpl.h"
 
 namespace {
@@ -122,17 +124,17 @@ void MEAPI MdtRPROJointSetRelativeQuaternion(const MdtRPROJointID j, const MeVec
 
 void MEAPI MdtRPROJointSetRelativeAngularVelocity(MdtRPROJointID j, MeVector3 w)
 {
-    fromBt(toBt(w), j->omega);
+    MeVector3Copy(j->omega, w);
 }
 
 void MEAPI MdtRPROJointSetAngularStrength(const MdtRPROJointID j, const MeReal sX, const MeReal sY, const MeReal sZ)
 {
-    fromBt(btVector3(sX, sY, sZ), j->angular_fmax);
+    MeVector3Set(j->angular_fmax, sX, sY, sZ);
 }
 
 void MEAPI MdtRPROJointSetLinearStrength(const MdtRPROJointID j, const MeReal sX, const MeReal sY, const MeReal sZ)
 {
-    fromBt(btVector3(sX, sY, sZ), j->linear_fmax);
+    MeVector3Set(j->linear_fmax, sX, sY, sZ);
 }
 
 } // extern "C"

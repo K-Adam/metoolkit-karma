@@ -1,7 +1,7 @@
 #include <MeBounding.h>
 #include <MeMath.h>
 
-// ponytail: Ritter's approximation, up to about 5% above the minimal sphere. Use Welzl if a tight fit matters.
+// Ritter's approximation, up to about 5% above the minimal sphere. Use Welzl if a tight fit matters.
 extern "C" void MEAPI MeBoundingSphereCalc(MeVector3* points, int numPoints, MeVector3 centre, MeReal* radius)
 {
     MeVector3Set(centre, 0, 0, 0);

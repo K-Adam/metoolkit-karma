@@ -1,17 +1,13 @@
 #include <algorithm>
-#include <unordered_map>
-#include <utility>
 
 #include <Mst.h>
+
+#include "Unsupported.h"
 
 namespace {
 
 const unsigned int kDefaultPairBuffer = 256;
 const unsigned int kDefaultContactBuffer = 1024;
-
-// MstBridge has no field for the space and world it connects, so the pair it last updated is kept here for
-// MstBridgeStepAll.
-std::unordered_map<MstBridgeID, std::pair<McdSpaceID, MdtWorldID>> bound;
 
 // Material pair parameters are symmetric, so both orders share one entry.
 MstMaterialPair* materialPair(MstBridgeID b, MstMaterialID m1, MstMaterialID m2)
@@ -78,7 +74,6 @@ MstBridgeID MEAPI MstBridgeCreate(McdFrameworkID frame, const unsigned int maxMa
 
 void MEAPI MstBridgeDestroy(const MstBridgeID b)
 {
-    bound.erase(b);
     McdModelPairContainerDestroy(b->pairs);
     delete[] b->contacts;
     delete[] b->materialPairArray;
@@ -201,7 +196,6 @@ void MEAPI MstHandleCollisions(McdModelPairContainer* pairs, const McdSpaceID s,
 
 void MEAPI MstBridgeUpdateTransitions(const MstBridgeID b, const McdSpaceID s, const MdtWorldID w)
 {
-    bound[b] = {s, w};
     McdSpacePairIterator it;
     McdSpacePairIteratorBegin(s, &it);
     int more;
@@ -214,7 +208,6 @@ void MEAPI MstBridgeUpdateTransitions(const MstBridgeID b, const McdSpaceID s, c
 
 void MEAPI MstBridgeUpdateContacts(const MstBridgeID b, const McdSpaceID s, const MdtWorldID w)
 {
-    bound[b] = {s, w};
     McdSpacePairIterator it;
     McdSpacePairIteratorBegin(s, &it);
     int more;
@@ -226,19 +219,11 @@ void MEAPI MstBridgeUpdateContacts(const MstBridgeID b, const McdSpaceID s, cons
     } while (more);
 }
 
-// One MstUniverseStep for the space and world this bridge last connected.
-void MEAPI MstBridgeStepAll(const MstBridgeID bridge, const MeReal stepSize)
+// Declared but absent from the original library, so no caller depends on it. The bridge does not know its space
+// and world.
+void MEAPI MstBridgeStepAll(const MstBridgeID, const MeReal)
 {
-    auto it = bound.find(bridge);
-    if (it == bound.end())
-    {
-        MeWarning(0, "MstBridgeStepAll: the bridge has not connected a space and world yet");
-        return;
-    }
-    auto [s, w] = it->second;
-    McdSpaceUpdateAll(s);
-    MstBridgeUpdateContacts(bridge, s, w);
-    MdtWorldStep(w, stepSize);
+    ME_UNSUPPORTED("MstBridgeStepAll");
 }
 
 } // extern "C"

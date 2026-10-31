@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <array>
 #include <new>
-#include <cmath>
 #include <vector>
 
 #include <LinearMath/btConvexHullComputer.h>

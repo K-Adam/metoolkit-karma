@@ -33,6 +33,15 @@ void insertName(MeHash* h, const char* name, void* datum)
         MeHashInsert(duplicateString(name), datum, h);
 }
 
+// The instance owns what its name tables list, so an object created under a name already taken would leak.
+bool nameTaken(MeHash* h, const char* name)
+{
+    if (!name || !MeHashLookup(name, h))
+        return false;
+    MeWarning(0, "MeAssetInstanceCreate: duplicate name '%s' skipped", name);
+    return true;
+}
+
 void worldTransform(MeMatrix4 out, const MeFAssetPart* part, const MeMatrix4Ptr assetTM)
 {
     MeMatrix4TMCompound(out, part ? part->tm : kIdentity, assetTM ? assetTM : kIdentity);
@@ -439,6 +448,8 @@ MeAssetInstance* MEAPI MeAssetInstanceCreate(MeAssetFactory* af, const MeFAsset*
     MeFAssetInitGeometryIterator(asset, &git);
     while (MeFGeometry* fg = MeFAssetGetGeometry(&git))
     {
+        if (nameTaken(ins->nameToGeometry, MeFGeometryGetName(fg)))
+            continue;
         int cached = McdGMGetGeomCount(af->gm);
         McdGeometryID g = McdGMCreateGeometry(af->gm, fg, MeFAssetGetName(asset));
         if (g && af->geometryPostCreateCB && McdGMGetGeomCount(af->gm) > cached)
@@ -453,7 +464,7 @@ MeAssetInstance* MEAPI MeAssetInstanceCreate(MeAssetFactory* af, const MeFAsset*
     {
         MeFAssetPart* part = parts[i];
         MeFModel* fm = MeFAssetPartGetModel(part);
-        if (!fm)
+        if (!fm || nameTaken(ins->nameToModel, MeFAssetPartGetName(part)))
             continue;
         McdGeometryID g = fm->type == kMeFModelTypeDynamicsOnly
                               ? nullptr
@@ -478,6 +489,8 @@ MeAssetInstance* MEAPI MeAssetInstanceCreate(MeAssetFactory* af, const MeFAsset*
     MeFAssetInitJointIterator(asset, &jit);
     while (MeFJoint* fj = world ? MeFAssetGetJoint(&jit) : nullptr)
     {
+        if (nameTaken(ins->nameToJoint, MeFJointGetName(fj)))
+            continue;
         MdtConstraintID c = af->jointCreateFunc(fj, world, MeAssetInstanceGetModel(ins, MeFJointGetPartName(fj, 0)),
                                                 MeAssetInstanceGetModel(ins, MeFJointGetPartName(fj, 1)), tm);
         if (!c)
@@ -504,8 +517,9 @@ void MEAPI MeAssetInstanceDestroy(MeAssetInstance* ins)
             MdtBodyID b = McdModelGetBody(m);
             if (McdModelGetSpace(m))
                 McdSpaceRemoveModel(m);
-            McdModelDestroy(m);
+            // The body goes first: its disable callback still reads the model.
             MdtBodyDestroy(b);
+            McdModelDestroy(m);
         }
         MeAIGeomIt git;
         MeAssetInstanceInitGeometryIterator(ins, &git);

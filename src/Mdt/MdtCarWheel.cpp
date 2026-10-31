@@ -70,7 +70,9 @@ btVector3 pointVelocity(MdtBodyID b, const btVector3& p)
 {
     if (!b)
         return btVector3(0, 0, 0);
-    return toBt(b->keaBody.vel) + toBt(b->keaBody.velrot).cross(p - toBt(b->comTM[3]));
+    MeVector3 q = {p.x(), p.y(), p.z()}, v;
+    MdtBodyGetVelocityAtPoint(b, q, v);
+    return toBt(v);
 }
 
 btVector3 relativeAngularVelocity(MdtCarWheelID j)

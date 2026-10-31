@@ -26,7 +26,7 @@ struct Section
     bool autoStop = false;
 };
 
-// ponytail: one global profiler that keeps last frame and running totals per section. Per frame logs (kMeProfileLogAll) need a history here.
+// One global profiler that keeps last frame and running totals per section. Per frame logs (kMeProfileLogAll) need a history here.
 struct Profiler
 {
     bool enabled = false;

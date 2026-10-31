@@ -1,5 +1,3 @@
-#include <cstring>
-
 #include <Mcd.h>
 #include <McdPrimitives.h>
 
@@ -28,9 +26,8 @@ Phases update(McdSpaceID space, McdModelPairContainer* pairs, McdModelPair** cur
 
 void place(MeMatrix4 tm, MeReal x)
 {
-    std::memset(tm, 0, sizeof(MeMatrix4));
-    tm[0][0] = tm[1][1] = tm[2][2] = tm[3][3] = 1;
-    tm[3][0] = x;
+    MeMatrix4TMMakeIdentity(tm);
+    MeMatrix4TMSetPosition(tm, x, 0, 0);
 }
 
 } // namespace

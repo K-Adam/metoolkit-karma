@@ -33,6 +33,16 @@ void push(PElementIt* it, PElement* e)
     it->stackHead = n;
 }
 
+template <class Node, class T>
+void append(Node** head, T* value)
+{
+    while (*head)
+        head = &(*head)->next;
+    *head = static_cast<Node*>(std::malloc(sizeof(Node)));
+    (*head)->current = value;
+    (*head)->next = nullptr;
+}
+
 } // namespace
 
 extern "C" {
@@ -81,12 +91,7 @@ void MEAPI PElementAddAttribute(PElement* e, char* attr, char* val)
     Attribute* a = static_cast<Attribute*>(std::malloc(sizeof(Attribute)));
     a->attr = duplicateString(attr);
     a->value = duplicateString(val);
-    AttributeNode** tail = &e->attrHead;
-    while (*tail)
-        tail = &(*tail)->next;
-    *tail = static_cast<AttributeNode*>(std::malloc(sizeof(AttributeNode)));
-    (*tail)->current = a;
-    (*tail)->next = nullptr;
+    append(&e->attrHead, a);
 }
 
 void MEAPI PElementParseAttributes(PElement* e, char* attrs)
@@ -115,12 +120,7 @@ void MEAPI PElementParseAttributes(PElement* e, char* attrs)
 
 void MEAPI PElementInsert(PElement* e, PElement* parent)
 {
-    PElementNode** tail = &parent->childHead;
-    while (*tail)
-        tail = &(*tail)->next;
-    *tail = static_cast<PElementNode*>(std::malloc(sizeof(PElementNode)));
-    (*tail)->current = e;
-    (*tail)->next = nullptr;
+    append(&parent->childHead, e);
 }
 
 PElement* MEAPI PElementFind(PElement* root, PElementCompareCB cb, void* k1, void* k2)

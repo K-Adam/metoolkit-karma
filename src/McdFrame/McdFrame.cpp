@@ -161,10 +161,11 @@ void MEAPI McdFrameworkDestroyAllModelsAndGeometries(McdFrameworkID f)
             free = free->next;
         if (!free)
             McdGeometrySetReferenceCount(free = g, 0);
+        // A type whose destroy is missing or does not unlink would otherwise stay in the list forever.
+        int count = f->geometryCount;
         McdGeometryDestroy(free);
-        // A type without a working destroy would otherwise stay in the list forever.
-        if (f->firstGeometry == g && free == g)
-            McdGeometryDeinit(g);
+        if (f->geometryCount == count)
+            McdGeometryDeinit(free);
     }
 }
 

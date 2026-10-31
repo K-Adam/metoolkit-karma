@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 
 #if defined(WIN32) && defined(_MSC_VER)
 #define WIN32_LEAN_AND_MEAN
@@ -115,21 +116,16 @@ MeHandler MeWarningHandler = MeHandlerWarning;
 MeHandler MeFatalErrorHandler = MeHandlerFatalError;
 MeHandler MeDebugHandler = MeHandlerDebug;
 
-#define ME_SWAP(Type, var, n) \
-    Type old = var;           \
-    var = n;                  \
-    return old
-
-MeShow MEAPI MeSetInfoShow(MeShow n) { ME_SWAP(MeShow, MeInfoShow, n); }
-MeShow MEAPI MeSetLogShow(MeShow n) { ME_SWAP(MeShow, MeLogShow, n); }
-MeShow MEAPI MeSetWarningShow(MeShow n) { ME_SWAP(MeShow, MeWarningShow, n); }
-MeShow MEAPI MeSetFatalErrorShow(MeShow n) { ME_SWAP(MeShow, MeFatalErrorShow, n); }
-MeShow MEAPI MeSetDebugShow(MeShow n) { ME_SWAP(MeShow, MeDebugShow, n); }
-MeHandler MEAPI MeSetInfoHandler(MeHandler n) { ME_SWAP(MeHandler, MeInfoHandler, n); }
-MeHandler MEAPI MeSetLogHandler(MeHandler n) { ME_SWAP(MeHandler, MeLogHandler, n); }
-MeHandler MEAPI MeSetWarningHandler(MeHandler n) { ME_SWAP(MeHandler, MeWarningHandler, n); }
-MeHandler MEAPI MeSetFatalErrorHandler(MeHandler n) { ME_SWAP(MeHandler, MeFatalErrorHandler, n); }
-MeHandler MEAPI MeSetDebugHandler(MeHandler n) { ME_SWAP(MeHandler, MeDebugHandler, n); }
+MeShow MEAPI MeSetInfoShow(MeShow n) { return std::exchange(MeInfoShow, n); }
+MeShow MEAPI MeSetLogShow(MeShow n) { return std::exchange(MeLogShow, n); }
+MeShow MEAPI MeSetWarningShow(MeShow n) { return std::exchange(MeWarningShow, n); }
+MeShow MEAPI MeSetFatalErrorShow(MeShow n) { return std::exchange(MeFatalErrorShow, n); }
+MeShow MEAPI MeSetDebugShow(MeShow n) { return std::exchange(MeDebugShow, n); }
+MeHandler MEAPI MeSetInfoHandler(MeHandler n) { return std::exchange(MeInfoHandler, n); }
+MeHandler MEAPI MeSetLogHandler(MeHandler n) { return std::exchange(MeLogHandler, n); }
+MeHandler MEAPI MeSetWarningHandler(MeHandler n) { return std::exchange(MeWarningHandler, n); }
+MeHandler MEAPI MeSetFatalErrorHandler(MeHandler n) { return std::exchange(MeFatalErrorHandler, n); }
+MeHandler MEAPI MeSetDebugHandler(MeHandler n) { return std::exchange(MeDebugHandler, n); }
 
 #define ME_DISPATCH(handler)            \
     va_list ap;                         \

@@ -1,9 +1,9 @@
 #include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <numeric>
 #include <unordered_map>
 
+#include <BulletCollision/CollisionDispatch/btSimulationIslandManager.h>
 #include <MeMath.h>
 
 #include "MdtImpl.h"

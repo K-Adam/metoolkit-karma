@@ -1,6 +1,5 @@
 #pragma once
 
-#include <BulletCollision/CollisionDispatch/btSimulationIslandManager.h>
 #include <btBulletDynamicsCommon.h>
 
 #include <cstring>
@@ -215,12 +214,3 @@ void mdtSetRef(MdtConstraintID c, unsigned i, const btTransform& t);
 btTransform mdtBodyTransform(MdtBodyID b);
 // Constraint frame of body i in world space.
 btTransform mdtFrameWorld(MdtConstraintID c, unsigned i);
-
-// Continues an angle in [-pi, pi] from the previous continuous value, so positions can span several turns.
-inline btScalar mdtUnwrap(btScalar angle, btScalar previous) { return previous + btNormalizeAngle(angle - previous); }
-
-// The limit's raw position from the previous step, for unwrapping angles.
-inline btScalar mdtLimitPrevious(const MdtBclLimit& l, btScalar fallback)
-{
-    return l.bPositionInitialised ? l.position - l.offset : fallback;
-}

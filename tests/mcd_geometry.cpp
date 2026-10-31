@@ -1,5 +1,3 @@
-#include <cstring>
-
 #include <Mcd.h>
 #include <McdContact.h>
 #include <McdModelPairManager.h>
@@ -11,11 +9,8 @@ namespace {
 
 void place(MeMatrix4 tm, MeReal x, MeReal y, MeReal z)
 {
-    std::memset(tm, 0, sizeof(MeMatrix4));
-    tm[0][0] = tm[1][1] = tm[2][2] = tm[3][3] = 1;
-    tm[3][0] = x;
-    tm[3][1] = y;
-    tm[3][2] = z;
+    MeMatrix4TMMakeIdentity(tm);
+    MeMatrix4TMSetPosition(tm, x, y, z);
 }
 
 int intersect(McdModelID a, McdModelID b, McdContact* contacts, int max = 16)
