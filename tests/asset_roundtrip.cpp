@@ -1,5 +1,8 @@
+#include <clocale>
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "asset_load.h"
 
@@ -8,7 +11,7 @@ static bool sameString(const char* a, const char* b)
     return (!a && !b) || (a && b && std::strcmp(a, b) == 0);
 }
 
-// Saved numbers carry max_digits10 digits, so every value must come back bit for bit.
+// Saved numbers are the shortest round-trip text, so every value must come back bit for bit.
 static void checkReals(const MeReal* a, const MeReal* b, int n)
 {
     for (int i = 0; i < n; ++i)
@@ -125,6 +128,58 @@ static void checkDuplicateNames()
     MeFAssetDestroy(a);
 }
 
+// The collision matrix stops growing at its cap, and parts past it always collide.
+static void checkManyParts()
+{
+    MeFAsset* a = MeFAssetCreate("many", 0);
+    std::vector<MeFAssetPart*> parts;
+    for (int i = 0; i < 5000; ++i)
+    {
+        parts.push_back(MeFAssetPartCreate(("p" + std::to_string(i)).c_str(), NULL, NULL));
+        MeFAssetInsertPart(a, parts.back());
+    }
+    MeFAssetPartEnableCollision(parts[0], parts[1], 0);
+    MeFAssetPartEnableCollision(parts[0], parts[4999], 0);
+    CHECK(!MeFAssetPartIsCollisionEnabled(parts[0], parts[1]));
+    CHECK(MeFAssetPartIsCollisionEnabled(parts[0], parts[4999]));
+    MeFAssetDestroy(a);
+}
+
+// Files use '.' for decimals even when the host program sets a locale that uses ','.
+static void checkLocale()
+{
+    if (!std::setlocale(LC_NUMERIC, "de_DE.UTF-8") && !std::setlocale(LC_NUMERIC, "German"))
+        return;
+    MeAssetDB* db = MeAssetDBCreate();
+    MeFAsset* a = MeFAssetCreate("loc", 0);
+    MeFAssetSetGraphicScale(a, 1.5f);
+    MeFGeometry* g = MeFGeometryCreate("g");
+    MeFPrimitive* p = MeFPrimitiveCreate("ball", kMeFPrimitiveTypeSphere);
+    MeFPrimitiveSetRadius(p, 0.25f);
+    MeFGeometryInsertPrimitive(g, p);
+    MeFAssetInsertGeometry(a, g);
+    MeAssetDBInsertAsset(db, a);
+
+    MeStream s = MeStreamOpenAsMemBuffer(256);
+    MeAssetDBXMLOutput* output = MeAssetDBXMLOutputCreate(db);
+    MeAssetDBXMLOutputWrite(output, s);
+    MeAssetDBXMLOutputDestroy(output);
+    MeStreamRewind(s);
+    MeAssetDB* back = MeAssetDBCreate();
+    MeAssetDBXMLInput* input = MeAssetDBXMLInputCreate(back, NULL);
+    CHECK(MeAssetDBXMLInputRead(input, s));
+    MeAssetDBXMLInputDestroy(input);
+    MeStreamClose(s);
+
+    MeFAsset* b = MeAssetDBLookupAssetByName(back, "loc");
+    CHECK(b && MeFAssetGetGraphicScale(b) == 1.5f);
+    MeFPrimitive* q = MeFGeometryLookupPrimitive(MeFAssetLookupGeometry(b, (char*)"g"), (char*)"ball");
+    CHECK(q && MeFPrimitiveGetRadius(q) == 0.25f);
+    MeAssetDBDestroy(back);
+    MeAssetDBDestroy(db);
+    std::setlocale(LC_NUMERIC, "C");
+}
+
 static void checkCombine(MeFAsset* soldier)
 {
     MeFAsset* both = MeFAssetCreateCopy(soldier, 1);
@@ -147,6 +202,8 @@ static void checkCombine(MeFAsset* soldier)
 int main()
 {
     checkDuplicateNames();
+    checkManyParts();
+    checkLocale();
 
     MeAssetDB* original = load(kRagDolls);
     if (!original)

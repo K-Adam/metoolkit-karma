@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+# The static libraries link Bullet's targets, so consumers must find the same package.
+find_dependency(Bullet CONFIG)
+
+include(${CMAKE_CURRENT_LIST_DIR}/karmaTargets.cmake)
+check_required_components(karma)

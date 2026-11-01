@@ -12,6 +12,8 @@
 #include <MeASELoad.h>
 #include <MeMessage.h>
 
+#include "Numbers.h"
+
 namespace {
 
 // Material indices in the file are bounded by this, so malformed counts cannot request huge allocations.
@@ -130,7 +132,7 @@ struct Parser
             return fail();
         const char* s = tok[i].c_str();
         char* end;
-        double d = std::strtod(s, &end);
+        double d = parseReal<double>(s, &end);
         if (end == s || *end || !std::isfinite(d))
             return fail();
         ++i;

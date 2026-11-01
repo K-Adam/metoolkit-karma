@@ -6,6 +6,7 @@
 
 #include <MeXMLParser.h>
 
+#include "Numbers.h"
 #include "StringCopy.h"
 #include "XMLText.h"
 
@@ -164,7 +165,9 @@ MeXMLError processContent(MeXMLInput* in, MeXMLElement* parent, MeXMLHandler han
         }
 
         MeXMLElement child{};
-        std::strncpy(child.name, tag.c_str(), sizeof(child.name) - 1);
+        if (tag.size() >= sizeof(child.name))
+            return fail(in, MeXMLErrorParseFail, "tag too long");
+        std::memcpy(child.name, tag.c_str(), tag.size() + 1);
         child.fi = in;
         child.level = level + 1;
         size_t space = std::strcspn(child.name, " \t\r\n");
@@ -217,13 +220,13 @@ unsigned int convert<unsigned int>(const char* s, char** end)
 template <>
 float convert<float>(const char* s, char** end)
 {
-    return std::strtof(s, end);
+    return parseReal<float>(s, end);
 }
 
 template <>
 double convert<double>(const char* s, char** end)
 {
-    return std::strtod(s, end);
+    return parseReal<double>(s, end);
 }
 
 char* skipSpace(char* s)

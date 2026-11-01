@@ -48,6 +48,11 @@ int main()
     CHECK(MeChunkGetCurrentSize(&c) == 0 && !MeChunkIsInUse(&c));
     CHECK(MeChunkGetAlignment(&c) == 16);
     MeChunkTerm(&c);
+    MeChunkInit(&c, 0);
+    m = MeChunkGetMem(&c, 10);
+    CHECK(m);
+    MeChunkPutMem(&c, m);
+    MeChunkTerm(&c);
 
     // Bounding sphere contains every point and is close to minimal.
     MeVector3 pts[] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0.2f, 0.3f, -0.9f}};

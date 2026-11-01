@@ -22,9 +22,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Bullet CONFIG REQUIRED)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
+set(KARMA_INCLUDE_DIR ${CMAKE_INSTALL_INCLUDEDIR}/karma)
 add_library(karma_api INTERFACE)
-target_include_directories(karma_api INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(karma_api INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${KARMA_INCLUDE_DIR}>)
 # The headers select MeReal and MEAPI from these platform macros, not from the compiler ones.
 if(WIN32)
     target_compile_definitions(karma_api INTERFACE WIN32)
@@ -34,6 +39,7 @@ endif()
 
 add_library(karma INTERFACE)
 add_library(karma::karma ALIAS karma)
+install(TARGETS karma_api karma EXPORT karmaTargets)
 
 function(karma_add_library name)
     cmake_parse_arguments(ARG "" "" "DEPS" ${ARGN})
@@ -42,6 +48,7 @@ function(karma_add_library name)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/internal ${BULLET_INCLUDE_DIRS})
     target_link_libraries(${name} PUBLIC karma_api ${ARG_DEPS} PRIVATE ${BULLET_LIBRARIES})
     target_link_libraries(karma INTERFACE ${name})
+    install(TARGETS ${name} EXPORT karmaTargets)
 endfunction()
 
 karma_add_library(MeGlobals)
@@ -60,6 +67,19 @@ karma_add_library(MeApp)
 karma_add_library(MdtKea DEPS MeGlobals)
 karma_add_library(MdtBcl DEPS MeGlobals)
 
-enable_testing()
-set(KARMA_REFERENCE_DIR ${CMAKE_SOURCE_DIR}/reference/metoolkit-karma-v1.2 CACHE PATH "Karma 1.2 reference SDK")
-add_subdirectory(tests)
+set(KARMA_CMAKE_DIR ${CMAKE_INSTALL_LIBDIR}/cmake/karma)
+install(DIRECTORY include/ DESTINATION ${KARMA_INCLUDE_DIR})
+install(EXPORT karmaTargets NAMESPACE karma:: DESTINATION ${KARMA_CMAKE_DIR})
+configure_package_config_file(cmake/karmaConfig.cmake.in karmaConfig.cmake INSTALL_DESTINATION ${KARMA_CMAKE_DIR})
+write_basic_package_version_file(karmaConfigVersion.cmake COMPATIBILITY SameMajorVersion)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/karmaConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/karmaConfigVersion.cmake
+    DESTINATION ${KARMA_CMAKE_DIR})
+
+# Projects that embed this one with add_subdirectory do not build its tests by default.
+string(COMPARE EQUAL "${CMAKE_SOURCE_DIR}" "${PROJECT_SOURCE_DIR}" KARMA_TOP_LEVEL)
+option(KARMA_BUILD_TESTS "Build the tests" ${KARMA_TOP_LEVEL})
+if(KARMA_BUILD_TESTS)
+    enable_testing()
+    set(KARMA_REFERENCE_DIR ${PROJECT_SOURCE_DIR}/reference/metoolkit-karma-v1.2 CACHE PATH "Karma 1.2 reference SDK")
+    add_subdirectory(tests)
+endif()

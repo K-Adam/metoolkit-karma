@@ -4,7 +4,9 @@
 #include <cstring>
 #include <string>
 
+#include <MeMessage.h>
 #include <MeXMLOutput.h>
+#include <MeXMLParser.h>
 
 #include "StringCopy.h"
 #include "XMLText.h"
@@ -86,6 +88,8 @@ int MEAPI MeXMLWriteElement(MeXMLOutput* op, int parent, char* tag, ...)
             start += std::string(" ") + name + "=\"" + mexml::encode(value) + "\"";
     }
     va_end(ap);
+    if (start.size() > sizeof(MeXMLElement::name))
+        MeWarning(0, "MeXMLWriteElement: <%s> is longer than the reader accepts", tag);
     write(op, start + ">");
 
     tagNode* node = static_cast<tagNode*>(std::malloc(sizeof(tagNode)));

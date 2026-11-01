@@ -2,20 +2,25 @@
 #include <cstring>
 
 #include <MeIDPool.h>
+#include <MeMessage.h>
 
 namespace {
 
 // Words of 32 IDs added each time the pool runs out.
 const unsigned int kWordsPerBlock = 4;
 
-void resize(MeIDPool* pool, unsigned int blocks)
+bool resize(MeIDPool* pool, unsigned int blocks)
 {
     unsigned int words = blocks * pool->block;
-    pool->IDbitfield = static_cast<MeU32*>(std::realloc(pool->IDbitfield, words * sizeof(MeU32)));
+    auto* grown = static_cast<MeU32*>(std::realloc(pool->IDbitfield, words * sizeof(MeU32)));
+    if (!grown)
+        return false;
+    pool->IDbitfield = grown;
     unsigned int oldWords = pool->maxBlocks * pool->block;
     std::memset(pool->IDbitfield + oldWords, 0, (words - oldWords) * sizeof(MeU32));
     pool->maxBlocks = blocks;
     pool->maxIDs = words * 32;
+    return true;
 }
 
 } // namespace
@@ -25,8 +30,14 @@ extern "C" {
 MeIDPool* MEAPI MeIDPoolCreate()
 {
     MeIDPool* pool = static_cast<MeIDPool*>(std::calloc(1, sizeof(MeIDPool)));
+    if (!pool)
+        return nullptr;
     pool->block = kWordsPerBlock;
-    resize(pool, 1);
+    if (!resize(pool, 1))
+    {
+        std::free(pool);
+        return nullptr;
+    }
     return pool;
 }
 
@@ -48,8 +59,11 @@ MeBool MEAPI MeIDPoolIsEmpty(MeIDPool* pool)
 
 int MEAPI MeIDPoolRequestID(MeIDPool* pool)
 {
-    if (pool->assignedIDs == pool->maxIDs)
-        resize(pool, pool->maxBlocks + 1);
+    if (pool->assignedIDs == pool->maxIDs && !resize(pool, pool->maxBlocks + 1))
+    {
+        MeWarning(0, "MeIDPoolRequestID: out of memory");
+        return -1;
+    }
     for (unsigned int w = 0;; ++w)
     {
         if (pool->IDbitfield[w] == 0xffffffffu)

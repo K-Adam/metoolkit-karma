@@ -1,5 +1,5 @@
 #include <cstdlib>
-#if defined(_MSC_VER)
+#if defined(_WIN32)
 #include <malloc.h>
 #endif
 
@@ -19,7 +19,12 @@ void* MEAPI createZeroed(size_t bytes)
 
 void* MEAPI createAligned(size_t bytes, unsigned int alignment)
 {
-#if defined(_MSC_VER)
+    // Both allocators need a power of two, and aligned_alloc needs at least pointer alignment.
+    unsigned int a = sizeof(void*);
+    while (a < alignment && a < 0x80000000u)
+        a *= 2;
+    alignment = a;
+#if defined(_WIN32)
     return _aligned_malloc(bytes, alignment);
 #else
     return std::aligned_alloc(alignment, (bytes + alignment - 1) / alignment * alignment);
@@ -33,7 +38,7 @@ void MEAPI destroy(void* const block)
 
 void MEAPI destroyAligned(void* const block)
 {
-#if defined(_MSC_VER)
+#if defined(_WIN32)
     _aligned_free(block);
 #else
     std::free(block);

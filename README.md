@@ -32,7 +32,20 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-Requires CMake 3.20 or newer and a C99/C++17 toolchain. Other projects link against the `karma::karma` target.
+Requires CMake 3.20 or newer and a C99/C++17 toolchain with floating-point `<charconv>` (MSVC 2019 16.4, GCC 11 or newer).
+
+To use it from another project, either add it with `add_subdirectory` or install it and find the package. Both give the `karma::karma` target. Tests are built only when this is the top-level project (`KARMA_BUILD_TESTS`).
+
+```sh
+cmake --install build --config Release --prefix <prefix>
+```
+
+```cmake
+find_package(karma CONFIG REQUIRED)   # with <prefix> in CMAKE_PREFIX_PATH, and Bullet findable
+target_link_libraries(app PRIVATE karma::karma)
+```
+
+The libraries are C++, so a C-only consumer still has to enable CXX for linking.
 
 ## Design
 
@@ -94,7 +107,7 @@ The original libraries were built with a 2002 compiler against `msvcrt.dll`. `ms
 | Area | Notes |
 |------|-------|
 | Dynamics | Soft joint rows are solved one at a time, and Kea's epsilon softening of hard joint rows is not applied. A very soft slip row with a finite friction bound is solved stiffer than in Kea. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
-| Assets | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. The asset factory caches geometry by `MeFGeometry` address. |
+| Assets | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. The asset factory caches geometry by `MeFGeometry` address. The per-asset collision matrix holds 4096 parts, and parts beyond that always collide. |
 | Teardown | Mst contact groups point at Mcd pairs, so the world must be destroyed before the space, as `MstUniverseDestroy` does. |
 
 Each new library target is one `karma_add_library(<Name> DEPS ...)` line in `CMakeLists.txt` plus a `src/<Name>/` directory.

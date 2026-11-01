@@ -222,15 +222,28 @@ MeHash* table(const MeFAsset* a, MeHash* MeFAsset::*member)
 }
 
 // Disabled collisions are a maxParts x maxParts bit matrix indexed by part index.
+// The matrix grows quadratically, so a hostile file must not be able to size it.
+const int kMaxMatrixParts = 4096;
+
+bool inMatrix(const MeFAsset* a, int i, int j)
+{
+    return i >= 0 && j >= 0 && i < a->maxParts && j < a->maxParts;
+}
+
+// Parts outside the matrix always collide.
 bool bit(const MeFAsset* a, int i, int j)
 {
-    unsigned int k = static_cast<unsigned int>(i * a->maxParts + j);
+    if (!inMatrix(a, i, j))
+        return false;
+    size_t k = static_cast<size_t>(i) * a->maxParts + j;
     return (a->disabledColArray[k / 32] >> (k % 32)) & 1;
 }
 
 void setBit(MeFAsset* a, int i, int j, bool on)
 {
-    unsigned int k = static_cast<unsigned int>(i * a->maxParts + j);
+    if (!inMatrix(a, i, j))
+        return;
+    size_t k = static_cast<size_t>(i) * a->maxParts + j;
     if (on)
         a->disabledColArray[k / 32] |= 1u << (k % 32);
     else
@@ -244,17 +257,25 @@ size_t matrixWords(int n)
 
 void growMatrix(MeFAsset* a, int index)
 {
-    if (index < a->maxParts)
+    if (index < a->maxParts || a->maxParts == kMaxMatrixParts)
         return;
-    int n = std::max({index + 1, a->maxParts * 2, 8});
+    int n = std::min(std::max({index + 1, a->maxParts * 2, 8}), kMaxMatrixParts);
+    auto* grown = static_cast<MeU32*>(std::calloc(matrixWords(n), sizeof(MeU32)));
+    if (!grown)
+    {
+        MeWarning(0, "MeFAsset: out of memory for the collision matrix, parts from %d on always collide", a->maxParts);
+        return;
+    }
+    if (index >= n)
+        MeWarning(0, "MeFAsset: parts from %d on always collide", n);
     MeU32* old = a->disabledColArray;
     int oldN = a->maxParts;
-    a->disabledColArray = static_cast<MeU32*>(std::calloc(matrixWords(n), sizeof(MeU32)));
+    a->disabledColArray = grown;
     a->maxParts = n;
     for (int i = 0; i < oldN; ++i)
         for (int j = 0; j < oldN; ++j)
         {
-            unsigned int k = static_cast<unsigned int>(i * oldN + j);
+            size_t k = static_cast<size_t>(i) * oldN + j;
             if ((old[k / 32] >> (k % 32)) & 1)
                 setBit(a, i, j, true);
         }
@@ -1172,8 +1193,15 @@ void MEAPI MeFPrimitiveAddVertex(MeFPrimitive* const p, MeVector3 vertex)
 {
     if (p->nVertices == p->maxVertices)
     {
-        p->maxVertices = p->maxVertices ? p->maxVertices * 2 : 16;
-        p->vertices = static_cast<MeVector3*>(std::realloc(p->vertices, p->maxVertices * sizeof(MeVector3)));
+        int n = p->maxVertices ? p->maxVertices * 2 : 16;
+        auto* grown = static_cast<MeVector3*>(std::realloc(p->vertices, n * sizeof(MeVector3)));
+        if (!grown)
+        {
+            MeWarning(0, "MeFPrimitiveAddVertex: out of memory, vertex dropped");
+            return;
+        }
+        p->vertices = grown;
+        p->maxVertices = n;
     }
     std::memcpy(p->vertices[p->nVertices++], vertex, sizeof(MeVector3));
 }

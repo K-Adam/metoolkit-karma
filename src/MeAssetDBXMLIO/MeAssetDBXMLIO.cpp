@@ -3,12 +3,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <MeAssetDBXMLIO.h>
+
+#include "Numbers.h"
 
 namespace {
 
@@ -251,7 +252,10 @@ void readGraphic(const Attributes& attrs, T* item, void(MEAPI* setHint)(T*, cons
     if (const char* g = attrs["graphic"])
         setHint(item, g);
     if (const char* s = attrs["scale"])
-        setScale(item, static_cast<MeReal>(std::strtod(s, nullptr)));
+    {
+        char* end;
+        setScale(item, parseReal<MeReal>(s, &end));
+    }
 }
 
 MeXMLError MEAPI readGeometry(const MeXMLElement* elem, void* parent)
@@ -377,12 +381,8 @@ MeFAsset* read(MeAssetDBXMLInput* input, MeStream stream, bool firstOnly, bool& 
 std::string numbers(const MeReal* v, int n)
 {
     std::string s;
-    char buf[32];
     for (int i = 0; i < n; ++i)
-    {
-        std::snprintf(buf, sizeof(buf), "%.*g", std::numeric_limits<MeReal>::max_digits10, static_cast<double>(v[i]));
-        s += (i ? "," : "") + std::string(buf);
-    }
+        s += (i ? "," : "") + formatReal(v[i]);
     return s;
 }
 

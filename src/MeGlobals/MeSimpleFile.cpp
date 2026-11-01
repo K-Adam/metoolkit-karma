@@ -1,3 +1,4 @@
+#include <climits>
 #include <fcntl.h>
 #include <string>
 #include <sys/stat.h>
@@ -7,7 +8,7 @@
 #include <unistd.h>
 #define O_BINARY 0
 #define _open open
-#define _lseek lseek
+#define _lseeki64 lseek
 #define _read read
 #define _write write
 #define _close close
@@ -55,7 +56,9 @@ int MEAPI MeLseek(int file, int offset, MeSeekOrigin_enum origin)
     static const int whence[] = {SEEK_SET, SEEK_CUR, SEEK_END};
     if (origin < kMeSeekSET || origin > kMeSeekEND)
         return -1;
-    return static_cast<int>(_lseek(file, offset, whence[origin]));
+    // Positions past 2 GB do not fit the int result, so they fail instead of wrapping.
+    long long pos = _lseeki64(file, offset, whence[origin]);
+    return pos > INT_MAX ? -1 : static_cast<int>(pos);
 }
 
 int MEAPI MeRead(int file, void* buf, int count)
@@ -84,7 +87,7 @@ char* MEAPI MeLoadWholeFileHandle(const int f, int* size)
     if (length < 0 || MeLseek(f, 0, kMeSeekSET) < 0)
         return nullptr;
     // One spare byte so text files come back NUL terminated.
-    char* data = static_cast<char*>(MeMemoryAPI.create(length + 1));
+    char* data = static_cast<char*>(MeMemoryAPI.create(static_cast<size_t>(length) + 1));
     if (!data)
         return nullptr;
     // Text mode reads can return fewer bytes than the file length.

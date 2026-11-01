@@ -1,10 +1,12 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include <MeHash.h>
 #include <MeIDPool.h>
 #include <MeStream.h>
+#include <MeXMLParser.h>
 
 #include "check.h"
 
@@ -99,5 +101,14 @@ int main()
     CHECK(MeStreamRead(word, 1, 6, m) == 5);
     MeStreamClose(m);
     CHECK(MeStreamOpen("this/file/does/not/exist", kMeOpenModeRDONLY) == NULL);
+
+    // A tag longer than MeXMLElement::name is rejected, not cut short.
+    std::string tag = "<" + std::string(2000, 'a') + "/>";
+    MeStream xml = MeStreamCreateFromMemBuffer(&tag[0], (unsigned int)tag.size(), (unsigned int)tag.size());
+    MeXMLInput* in = MeXMLInputCreate(xml);
+    MeXMLHandler none[] = {ME_XML_HANDLER_END};
+    CHECK(MeXMLInputProcess(in, none, NULL) == MeXMLErrorParseFail);
+    MeXMLInputDestroy(in);
+    MeStreamClose(xml);
     return 0;
 }
