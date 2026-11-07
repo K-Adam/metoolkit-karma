@@ -1,7 +1,6 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -132,8 +131,8 @@ struct Parser
             return fail();
         const char* s = tok[i].c_str();
         char* end;
-        double d = parseReal<double>(s, &end);
-        if (end == s || *end || !std::isfinite(d))
+        double d = parseNumber<double>(s, &end);
+        if (end == s || *end)
             return fail();
         ++i;
         v = (MeReal)d;
@@ -548,6 +547,9 @@ MeASEObject* load(MeStream fp, const MeReal scale[3], MeBool asParts)
         }
         if (!p.ok || parts.empty())
             return nullptr;
+        // Faces of a file without materials point at material 0, so it must exist.
+        if (materials.empty())
+            materials.emplace_back();
 
         store = allocate<MeASEMaterialStore>(1);
         store->materials = allocate<MeASEMaterial>(materials.size() + 1);

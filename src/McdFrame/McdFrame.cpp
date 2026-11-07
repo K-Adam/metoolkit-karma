@@ -32,6 +32,13 @@ McdFrameworkID MEAPI McdInit(int geoTypeMaxCount, int modelCount, int instanceCo
 
 void MEAPI McdTerm(McdFrameworkID frame)
 {
+    if (!frame)
+        return;
+    // Objects the application left behind go before the term actions, which may release what they need.
+    McdFrameworkImpl* f = impl(frame);
+    while (!f->spaces.empty())
+        f->spaceDestroyHook(*f->spaces.begin());
+    McdFrameworkDestroyAllModelsAndGeometries(frame);
     for (auto* link = frame->termActions; link;)
     {
         auto* next = static_cast<McdTermActionLink*>(link->next);

@@ -11,6 +11,8 @@ McdModelPairID MEAPI McdModelPairCreate(McdModelID m1, McdModelID m2)
 
 void MEAPI McdModelPairDestroy(McdModelPairID p)
 {
+    if (!p)
+        return;
     // Releases the narrowphase state of a pair the application never said goodbye to.
     McdGoodbye(p);
     delete p;
@@ -18,6 +20,9 @@ void MEAPI McdModelPairDestroy(McdModelPairID p)
 
 void MEAPI McdModelPairReset(McdModelPairID p, McdModelID m1, McdModelID m2)
 {
+    // The old contents may be garbage, so a stale live entry is dropped by address only.
+    if (m1)
+        impl(m1->frame)->livePairs.erase(p);
     *p = McdModelPair{};
     p->model1 = m1;
     p->model2 = m2;

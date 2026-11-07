@@ -29,7 +29,9 @@ void cone(MdtJointRows& r, btScalar a1, btScalar a2, btScalar kp, btScalar kd)
         return;
     btScalar swing = btAtan2(s, a.dot(x));
     btScalar cy = a.dot(r.axisB(1)) / s, cz = a.dot(r.axisB(2)) / s;
-    btScalar limit = a1 * a2 / btSqrt(a2 * a2 * cy * cy + a1 * a1 * cz * cz);
+    btScalar d = btSqrt(a2 * a2 * cy * cy + a1 * a1 * cz * cz);
+    // A zero angle collapses the ellipse, and both zero locks the swing.
+    btScalar limit = d < SIMD_EPSILON ? btMin(a1, a2) : a1 * a2 / d;
     if (swing > limit)
         oneSided(r, r.angular(u / s), swing - limit, kp, kd, true);
 }

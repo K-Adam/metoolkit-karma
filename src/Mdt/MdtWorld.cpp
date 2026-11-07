@@ -11,15 +11,24 @@
 
 namespace {
 
-// An enabled body touching a disabled one wakes it, as Karma does before partitioning.
+// An enabled body touching a disabled one wakes it, as Karma does before partitioning. Waking repeats until it
+// spreads no further, so the result does not depend on the order of the set, and enable callbacks run outside
+// the iteration.
 void wakeTouchedBodies(MdtWorldImpl& w)
 {
-    for (MdtConstraintID c : w.enabled)
+    std::vector<MdtBodyID> wake;
+    do
     {
-        MdtBodyID a = c->head.mdtbody[0], b = c->head.mdtbody[1];
-        if (a && b && MdtBodyIsEnabled(a) != MdtBodyIsEnabled(b))
-            MdtBodyEnable(MdtBodyIsEnabled(a) ? b : a);
-    }
+        wake.clear();
+        for (MdtConstraintID c : w.enabled)
+        {
+            MdtBodyID a = c->head.mdtbody[0], b = c->head.mdtbody[1];
+            if (a && b && MdtBodyIsEnabled(a) != MdtBodyIsEnabled(b))
+                wake.push_back(MdtBodyIsEnabled(a) ? b : a);
+        }
+        for (MdtBodyID b : wake)
+            MdtBodyEnable(b);
+    } while (!wake.empty());
 }
 
 // Bodies joined by enabled constraints form a partition. With auto-disable on, a partition in which no body
@@ -64,9 +73,13 @@ void updatePartitions(MdtWorldImpl& w)
     }
     if (!params.autoDisable)
         return;
+    // Disable callbacks may create or enable bodies, so they run after the scan.
+    std::vector<MdtBodyID> resting;
     for (MdtBodyImpl* b : w.bodies)
         if (MdtBodyIsEnabled(&b->pub) && !moving[b->pub.partitionIndex])
-            MdtBodyDisable(&b->pub);
+            resting.push_back(&b->pub);
+    for (MdtBodyID b : resting)
+        MdtBodyDisable(b);
 }
 
 // Values the original sets in MdtWorldCreate and restores in MdtWorldReset.
@@ -181,6 +194,9 @@ void MEAPI MdtWorldDestroy(const MdtWorldID w)
 
 void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
 {
+    // Bullet skips a step this small, and forces and impulses are divided by it, so they wait for the next one.
+    if (!(stepSize > SIMD_EPSILON))
+        return;
     MdtWorldImpl& wi = *impl(w);
     wi.pub.keaParams.stepsize = stepSize;
     wakeTouchedBodies(wi);

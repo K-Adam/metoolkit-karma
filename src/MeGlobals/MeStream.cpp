@@ -70,9 +70,16 @@ MeStream MEAPI MeStreamOpenWithSearch(const char* filename, MeOpenMode_enum mode
 MeStream MEAPI MeStreamOpenAsMemBuffer(unsigned int initialSize)
 {
     MeStream s = static_cast<MeStream>(std::calloc(1, sizeof(_MeStream)));
+    char* buffer = static_cast<char*>(std::malloc(initialSize ? initialSize : 1));
+    if (!s || !buffer)
+    {
+        std::free(s);
+        std::free(buffer);
+        return nullptr;
+    }
     s->bUseMemblock = 1;
     s->bGrowFast = 1;
-    s->buffer = static_cast<char*>(std::malloc(initialSize ? initialSize : 1));
+    s->buffer = buffer;
     s->bufSize = initialSize;
     return s;
 }
@@ -81,6 +88,8 @@ MeStream MEAPI MeStreamCreateFromMemBuffer(char* buffer, unsigned int bufLength,
 {
     // The stream copies the caller's block so that growing and closing never touch memory it does not own.
     MeStream s = MeStreamOpenAsMemBuffer(bufSize > bufLength ? bufSize : bufLength);
+    if (!s)
+        return nullptr;
     std::memcpy(s->buffer, buffer, bufLength);
     s->bufLength = bufLength;
     return s;
@@ -90,8 +99,12 @@ void MEAPI MeStreamMemBufferFreeSlackSpace(MeStream stream)
 {
     if (!stream->bUseMemblock || stream->bufSize == stream->bufLength)
         return;
-    stream->buffer = static_cast<char*>(std::realloc(stream->buffer, stream->bufLength ? stream->bufLength : 1));
-    stream->bufSize = stream->bufLength;
+    // Only shrinks, so keeping the old block when realloc fails is harmless.
+    if (char* b = static_cast<char*>(std::realloc(stream->buffer, stream->bufLength ? stream->bufLength : 1)))
+    {
+        stream->buffer = b;
+        stream->bufSize = stream->bufLength;
+    }
 }
 
 void MEAPI MeStreamMemBufferUseConservativeGrowth(MeStream stream, MeBool bConsGrowth)

@@ -45,7 +45,7 @@ find_package(karma CONFIG REQUIRED)   # with <prefix> in CMAKE_PREFIX_PATH, and 
 target_link_libraries(app PRIVATE karma::karma)
 ```
 
-The libraries are C++, so a C-only consumer still has to enable CXX for linking.
+The libraries are static only, and they are C++, so a C-only consumer still has to enable CXX for linking. `MeViewer_d3d.h` is installed with the other headers but needs Win32 and Direct3D, as in the original SDK.
 
 ## Design
 
@@ -76,7 +76,6 @@ Fields that clients read (`MdtBody::bodyTM`, `keaBody.vel`, pair container range
 - A new `McdSpace` starts inside a change block. Pairs are read between `McdSpaceEndChanges` and `McdSpaceBeginChanges`.
 - Primitive-plane contacts follow Karma: 4 corners for a resting box, 4 rim points per cylinder cap, 2 contacts for a sphyl.
 - Auto-disable is on by default, and the default inertia is 0.4 times the mass.
-- A pair built by hand must get `McdGoodbye` before either of its models is destroyed.
 
 **Header changes.** `include/` matches the original SDK except for one fix needed for 64-bit builds: `MeUintPtr` is `uintptr_t` under `WIN32` (it was 32 bits), and the `MeMemory.h` alignment macros cast through it instead of `long unsigned`.
 
@@ -109,6 +108,8 @@ The original libraries were built with a 2002 compiler against `msvcrt.dll`. `ms
 | Dynamics | Soft joint rows are solved one at a time, and Kea's epsilon softening of hard joint rows is not applied. A very soft slip row with a finite friction bound is solved stiffer than in Kea. Very uneven mass ratios (RagDolls.ka's lower back) need more solver iterations than Kea. |
 | Assets | The `.ka` property tags for rpro joint strengths are a best guess. `MeFJointScale` does not scale car wheel suspension lengths. The asset factory caches geometry by `MeFGeometry` address. The per-asset collision matrix holds 4096 parts, and parts beyond that always collide. |
 | Teardown | Mst contact groups point at Mcd pairs, so the world must be destroyed before the space, as `MstUniverseDestroy` does. |
+| Performance | Loading or destroying an asset takes time quadratic in its item count, because the per-asset name hashes have a fixed size. Walking a body's constraints with `MdtBodyGetFirstConstraint` and `MdtBodyGetNextConstraint` scans the whole world each call. |
+| XML | A start tag longer than `MeXMLElement::name` (1024 bytes) is written with a warning but cannot be read back, since that buffer size is fixed by the header. |
 
 Each new library target is one `karma_add_library(<Name> DEPS ...)` line in `CMakeLists.txt` plus a `src/<Name>/` directory.
 

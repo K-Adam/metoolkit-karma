@@ -397,6 +397,8 @@ extern "C" {
 MeAssetDB* MEAPI MeAssetDBCreate()
 {
     MeAssetDB* db = static_cast<MeAssetDB*>(std::calloc(1, sizeof(MeAssetDB)));
+    if (!db)
+        return nullptr;
     db->nilAsset = sentinel<MeFAssetNode>();
     return db;
 }

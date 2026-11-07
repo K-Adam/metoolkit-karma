@@ -101,6 +101,18 @@ btTransform massFrame(const MdtBody& b, btVector3& inertia)
     return btTransform(rot, toBt(b.com));
 }
 
+// Bullet's exponential map update without its cap of pi/4 per step, which would leave a fast spinning body
+// turning slower than its angular velocity.
+btQuaternion integrateRotation(const btQuaternion& q, const btVector3& w, btScalar dt)
+{
+    btScalar angle = w.length();
+    btVector3 axis = angle < btScalar(0.001)
+                         ? w * (btScalar(0.5) * dt - dt * dt * dt * btScalar(0.020833333333) * angle * angle)
+                         : w * (btSin(btScalar(0.5) * angle * dt) / angle);
+    btQuaternion r = btQuaternion(axis.x(), axis.y(), axis.z(), btCos(angle * dt * btScalar(0.5))) * q;
+    return r.safeNormalize();
+}
+
 } // namespace
 
 void mdtBodyUpdateCom(MdtBody& b)
@@ -122,6 +134,7 @@ void mdtBodyPush(MdtBodyImpl& b, MeReal dt)
     btTransform frame = massFrame(p, inertia);
     b.rb.setMassProps(p.mass, inertia);
     b.rb.setCenterOfMassTransform(body * frame);
+    b.startRotation = b.rb.getCenterOfMassTransform().getRotation();
     btVector3 w = toBt(k.velrot) * (1 - p.angularDamping * dt);
     btVector3 torque = toBt(k.torque) + toBt(p.impulseAngular) / dt;
     if (k.flags & MdtKeaBodyFlagAddCoriolisForce)
@@ -140,7 +153,9 @@ void mdtBodyPull(MdtBodyImpl& b, MeReal dt)
     MdtBody& p = b.pub;
     MdtKeaBody& k = p.keaBody;
     btVector3 inertia;
-    btTransform body = b.rb.getCenterOfMassTransform() * massFrame(p, inertia).inverse();
+    btTransform com = b.rb.getCenterOfMassTransform();
+    com.setRotation(integrateRotation(b.startRotation, b.rb.getAngularVelocity(), dt));
+    btTransform body = com * massFrame(p, inertia).inverse();
     fromBtTransform(body, p.bodyTM);
     // Kea integrates the quaternion, so it keeps its sign from step to step.
     btQuaternion q = body.getRotation();
@@ -213,6 +228,8 @@ void MEAPI MdtBodyDestroy(const MdtBodyID b)
     if (!b)
         return;
     MdtWorldImpl* wi = impl(b->world);
+    if (wi->bodyDestroyHook)
+        wi->bodyDestroyHook(b);
     destroyIf(b, false);
     MdtBodyDisable(b);
     wi->bodies.erase(std::find(wi->bodies.begin(), wi->bodies.end(), impl(b)));
@@ -448,8 +465,8 @@ void MEAPI MdtBodyGetFastSpinAxis(const MdtBodyID b, MeVector3 v)
     MeVector3Copy(v, b->keaBody.fastSpinAxis);
 }
 
-// Bullet integrates rotation with the exponential map, which already handles fast spin, so the axis is
-// only recorded.
+// mdtBodyPull integrates rotation with the exact exponential map, which already handles fast spin, so the
+// axis is only recorded.
 void MEAPI MdtBodySetFastSpinAxis(const MdtBodyID b, const MeReal x, const MeReal y, const MeReal z)
 {
     fromBt(btVector3(x, y, z).normalized(), b->keaBody.fastSpinAxis);

@@ -1,15 +1,17 @@
-#include <vector>
+#include <algorithm>
+#include <deque>
 
 #include <McdModel.h>
 #include <McduRequestTable.h>
 
 // One global table of requests indexed by the request IDs of both models, which a framework's hello callback
-// uses to give each new pair its request. Entries are copies, so pairs can point at them.
+// uses to give each new pair its request. Entries are copies, so pairs can point at them. The deque only grows,
+// which keeps them in place across a later init or term.
 
 namespace {
 
 int idCount = 0;
-std::vector<McdRequest> table;
+std::deque<McdRequest> table;
 
 McdRequest* entry(int id1, int id2)
 {
@@ -33,14 +35,16 @@ MeBool MEAPI McduRequestTableInit(int idMaxCount, McdRequest* defaultRequest)
     if (idMaxCount <= 0 || idMaxCount > 65535)
         return 0;
     idCount = idMaxCount;
-    table.assign((size_t)idMaxCount * idMaxCount, defaultRequest ? *defaultRequest : McdRequest{});
+    size_t n = (size_t)idMaxCount * idMaxCount;
+    if (table.size() < n)
+        table.resize(n);
+    std::fill(table.begin(), table.end(), defaultRequest ? *defaultRequest : McdRequest{});
     return 1;
 }
 
 void MEAPI McduRequestTableTerm()
 {
     idCount = 0;
-    table = {};
 }
 
 // Interactions are symmetric, so both orders get the request.

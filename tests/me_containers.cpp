@@ -23,6 +23,25 @@ static void MEAPI freeKey(void* const k)
     std::free(k);
 }
 
+struct Numbers
+{
+    unsigned int u;
+    float f;
+};
+
+static MeXMLError parseNumbers(std::string xml)
+{
+    Numbers n{};
+    MeStream s = MeStreamCreateFromMemBuffer(&xml[0], (unsigned int)xml.size(), (unsigned int)xml.size());
+    MeXMLInput* in = MeXMLInputCreate(s);
+    MeXMLHandler handlers[] = {ME_XML_UINT_HANDLER("U", Numbers, u, NULL), ME_XML_FLOAT_HANDLER("F", Numbers, f, NULL),
+                               ME_XML_HANDLER_END};
+    MeXMLError err = MeXMLInputProcess(in, handlers, &n);
+    MeXMLInputDestroy(in);
+    MeStreamClose(s);
+    return err;
+}
+
 int main()
 {
     MeHash* h = MeHashCreate(7);
@@ -110,5 +129,11 @@ int main()
     CHECK(MeXMLInputProcess(in, none, NULL) == MeXMLErrorParseFail);
     MeXMLInputDestroy(in);
     MeStreamClose(xml);
+
+    CHECK(parseNumbers("<U>7</U><F>1.5</F>") == MeXMLErrorNone);
+    CHECK(parseNumbers("<U>-1</U>") == MeXMLErrorInvalidValue);
+    CHECK(parseNumbers("<U>99999999999</U>") == MeXMLErrorInvalidValue);
+    CHECK(parseNumbers("<F>nan</F>") == MeXMLErrorInvalidValue);
+    CHECK(parseNumbers("<F>inf</F>") == MeXMLErrorInvalidValue);
     return 0;
 }

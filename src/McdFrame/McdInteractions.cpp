@@ -70,8 +70,12 @@ MeBool MEAPI McdNearby(McdModelPair* p)
 
 void MEAPI McdHello(McdModelPair* p)
 {
+    // A second hello would replace the cached narrowphase state without releasing it.
+    if (p->phase == kMcdFFStateHello || p->phase == kMcdFFStateStaying)
+        return;
     p->phase = kMcdFFStateHello;
     McdFrameworkID f = p->model1->frame;
+    impl(f)->livePairs.insert(p);
     if (f->mHelloCallbackFnPtr)
         f->mHelloCallbackFnPtr(p);
     if (McdInteractions* i = userInteractions(p))
@@ -89,6 +93,7 @@ void MEAPI McdGoodbye(McdModelPair* p)
     if (p->phase == kMcdFFStateGoodbye || p->phase == kMcdFFStateInactive)
         return;
     p->phase = kMcdFFStateGoodbye;
+    impl(p->model1->frame)->livePairs.erase(p);
     if (McdInteractions* i = userInteractions(p))
     {
         if (i->goodbyeFn)

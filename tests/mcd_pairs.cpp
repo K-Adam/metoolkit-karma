@@ -1,4 +1,6 @@
 #include <Mcd.h>
+#include <McdCullingTable.h>
+#include <McdModelPairManager.h>
 #include <McdPrimitives.h>
 
 #include "check.h"
@@ -30,10 +32,88 @@ void place(MeMatrix4 tm, MeReal x)
     MeMatrix4TMSetPosition(tm, x, 0, 0);
 }
 
+int hellos = 0;
+
+void MEAPI countHello(McdModelPair*)
+{
+    ++hellos;
+}
+
+// Objects destroyed in any order, or left to McdTerm, never leave a pair or a space reading a freed model.
+void lifetime()
+{
+    McdFrameworkID frame = McdInit(McdPrimitivesGetTypeCount(), 10, 10, 1);
+    McdPrimitivesRegisterTypes(frame);
+    McdPrimitivesRegisterInteractions(frame);
+    McdGeometryID sphere = McdSphereCreate(frame, 1);
+    MeMatrix4 tmA, tmB, tmC;
+    place(tmA, 0);
+    place(tmB, (MeReal)1.5);
+    place(tmC, 20);
+
+    frame->mHelloCallbackFnPtr = countHello;
+    McdModelID a = McdModelCreate(sphere), b = McdModelCreate(sphere);
+    McdModelSetTransformPtr(a, tmA);
+    McdModelSetTransformPtr(b, tmB);
+    McdModelPairManagerID manager = McdModelPairManagerCreate(4);
+    CHECK(McdModelPairManagerActivate(manager, a, b));
+    McdModelPair* p = McdModelPairManagerGetPair(manager, a, b);
+    McdHello(p);
+    McdHello(p);
+    CHECK(hellos == 1);
+    frame->mHelloCallbackFnPtr = nullptr;
+    McdModelDestroy(a);
+    CHECK(p->phase == kMcdFFStateGoodbye && !p->m_cachedData);
+    McdModelDestroy(b);
+    McdModelPairManagerDestroy(manager);
+
+    // A model that leaves the space forgets its culling table.
+    McdSpaceID space = McdSpaceAxisSortCreate(frame, McdAllAxes, 10, 10);
+    McdModelPairContainer* pairs = McdModelPairContainerCreate(10);
+    a = McdModelCreate(sphere);
+    b = McdModelCreate(sphere);
+    McdModelSetTransformPtr(a, tmA);
+    McdModelSetTransformPtr(b, tmB);
+    McdCullingTable* table = McdCullingTableCreate(2);
+    McdCullingTableSet(table, 0, 1, 1);
+    CHECK(McdSpaceInsertModelWithCulling(space, a, table, 0, 7));
+    CHECK(McdSpaceInsertModelWithCulling(space, b, table, 1, 7));
+    McdModelPair* current;
+    CHECK(update(space, pairs, &current).hello == 0);
+    McdSpaceRemoveModel(a);
+    McdCullingTableDestroy(table);
+    CHECK(McdSpaceInsertModel(space, a));
+    CHECK(update(space, pairs, &current).hello == 1);
+
+    // Removing each model while iterating still visits every model.
+    McdModelID c = McdModelCreate(sphere);
+    McdModelSetTransformPtr(c, tmC);
+    CHECK(McdSpaceInsertModel(space, c));
+    McdSpaceModelIterator it;
+    McdSpaceModelIteratorBegin(space, &it);
+    McdModelID m;
+    int seen = 0;
+    while (McdSpaceGetModel(space, &it, &m))
+    {
+        McdSpaceRemoveModel(m);
+        McdModelDestroy(m);
+        ++seen;
+    }
+    CHECK(seen == 3 && McdSpaceGetModelCount(space) == 0);
+
+    // McdTerm releases whatever is left.
+    a = McdModelCreate(sphere);
+    McdModelSetTransformPtr(a, tmA);
+    CHECK(McdSpaceInsertModel(space, a));
+    McdModelPairContainerDestroy(pairs);
+    McdTerm(frame);
+}
+
 } // namespace
 
 int main()
 {
+    lifetime();
     McdFrameworkID frame = McdInit(McdPrimitivesGetTypeCount(), 10, 10, 1);
     McdPrimitivesRegisterTypes(frame);
     McdPrimitivesRegisterInteractions(frame);

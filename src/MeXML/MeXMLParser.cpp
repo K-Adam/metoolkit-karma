@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <string>
 
 #include <MeXMLParser.h>
@@ -202,33 +203,6 @@ MeXMLError processContent(MeXMLInput* in, MeXMLElement* parent, MeXMLHandler han
     }
 }
 
-template <class T>
-T convert(const char* s, char** end);
-
-template <>
-int convert<int>(const char* s, char** end)
-{
-    return static_cast<int>(std::strtol(s, end, 10));
-}
-
-template <>
-unsigned int convert<unsigned int>(const char* s, char** end)
-{
-    return static_cast<unsigned int>(std::strtoul(s, end, 10));
-}
-
-template <>
-float convert<float>(const char* s, char** end)
-{
-    return parseReal<float>(s, end);
-}
-
-template <>
-double convert<double>(const char* s, char** end)
-{
-    return parseReal<double>(s, end);
-}
-
 char* skipSpace(char* s)
 {
     return s + std::strspn(s, " \t\r\n");
@@ -248,7 +222,7 @@ MeXMLError parseArray(MeXMLInput* in, const MeXMLHandler* h, void* data, unsigne
         if (!MeXMLParseComma(cursor, &rest))
             return fail(in, MeXMLErrorInvalidValue, "too few values");
         char* end;
-        out[i] = convert<T>(cursor, &end);
+        out[i] = parseNumber<T>(cursor, &end);
         if (end == cursor || *skipSpace(end))
             return fail(in, MeXMLErrorInvalidValue, "invalid number");
         cursor = rest;
@@ -367,7 +341,9 @@ MeXMLError MEAPI MeXMLParseStringArray(MeXMLInput* in, const MeXMLHandler* h, vo
 
 MeXMLInput* MEAPI MeXMLInputCreate(MeStream file)
 {
-    InputImpl* x = new InputImpl{};
+    InputImpl* x = new (std::nothrow) InputImpl{};
+    if (!x)
+        return nullptr;
     x->pub.stream = file;
     return &x->pub;
 }
@@ -389,7 +365,15 @@ void* MEAPI MeXMLInputGetUserData(const MeXMLInput* input)
 
 MeXMLError MEAPI MeXMLInputProcess(MeXMLInput* input, MeXMLHandler handlers[], void* userdata)
 {
-    return processContent(input, nullptr, handlers, userdata, userdata);
+    // A huge text node must not throw across the C boundary.
+    try
+    {
+        return processContent(input, nullptr, handlers, userdata, userdata);
+    }
+    catch (const std::bad_alloc&)
+    {
+        return fail(input, MeXMLErrorParseFail, "out of memory");
+    }
 }
 
 const char* MEAPI MeXMLInputGetErrorString(const MeXMLInput* input)

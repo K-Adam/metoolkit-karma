@@ -177,6 +177,8 @@ void MEAPI McdAggregateDestroy(McdGeometryID g)
 
 int MEAPI McdAggregateAddElement(McdAggregateID g, McdGeometryID element, MeMatrix4 relTM)
 {
+    if (!element)
+        return -1;
     AggregateImpl* a = get(g);
     for (int i = 0; i < (int)a->elements.size(); ++i)
     {
@@ -266,6 +268,8 @@ void MEAPI McdAggregateMaximumPoint(McdGeometryInstanceID ins, MeReal* const inD
 {
     btVector3 dir = toBt(inDir);
     btScalar best = -MEINFINITY;
+    // An empty aggregate is a point at its origin.
+    std::copy(ins->mTM[3], ins->mTM[3] + 3, outPoint);
     for (McdGeometryInstance* c = ins->child; c; c = c->next)
     {
         MeVector3 p;

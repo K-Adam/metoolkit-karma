@@ -3,6 +3,8 @@
 
 #include <MeCommandLine.h>
 
+#include "Numbers.h"
+
 namespace {
 
 void eatAt(MeCommandLineOptions* options, int pos, int count)
@@ -98,7 +100,8 @@ int MEAPI MeCommandLineOptionsGetNumeric(MeCommandLineOptions* options, const ch
 double MEAPI MeCommandLineOptionsGetFloat(MeCommandLineOptions* options, const char* arg, const MeBool eat)
 {
     const char* v = value(options, arg, eat);
-    return v ? std::atof(v) : 0.0;
+    char* end;
+    return v ? parseNumber<double>(v, &end) : 0.0;
 }
 
 char* MEAPI MeCommandLineOptionsGetString(MeCommandLineOptions* options, const char* arg, const MeBool eat)

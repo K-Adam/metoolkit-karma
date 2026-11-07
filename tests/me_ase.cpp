@@ -140,6 +140,13 @@ int main()
     MeASEObjectDestroy(merged);
     MeASEObjectDestroy(nullptr);
 
+    // Without a material list, faces still index a real sub-material.
+    MeASEObject* plain = load(kQuad, 1);
+    CHECK(plain && plain->matStore->numMaterials == 1);
+    const MeASEFace& face = plain->faces[0];
+    CHECK(face.subMaterialId < plain->matStore->materials[face.materialId].numSubs);
+    MeASEObjectDestroy(plain);
+
     // Malformed input fails cleanly instead of reading out of bounds.
     const char* bad[][2] = {
         {"*MESH_VERTEX 3 0.0", "*MESH_VERTEX 4 0.0"},
@@ -150,6 +157,7 @@ int main()
         {"*MATERIAL_REF 0", "*MATERIAL_REF 1"},
         {"*MESH_NUMVERTEX 4", "*MESH_NUMVERTEX 999999999"},
         {"*MESH_VERTEX 1 1.0", "*MESH_VERTEX 1 x"},
+        {"*MESH_VERTEX 1 1.0", "*MESH_VERTEX 1 nan"},
         {"*MESH_NUMFACES 4", "*MESH_NUMFACES 5"},
         {"*MESH_NORMALS {", "*MESH_NUMTVERTEX 1 *MESH_NORMALS {"},
         {"*SUBMATERIAL 1 {", "*SUBMATERIAL 4000 {"},

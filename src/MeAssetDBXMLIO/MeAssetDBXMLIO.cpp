@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <MeAssetDBXMLIO.h>
+#include <MeMessage.h>
 
 #include "Numbers.h"
 
@@ -254,7 +255,9 @@ void readGraphic(const Attributes& attrs, T* item, void(MEAPI* setHint)(T*, cons
     if (const char* s = attrs["scale"])
     {
         char* end;
-        setScale(item, parseReal<MeReal>(s, &end));
+        MeReal scale = parseNumber<MeReal>(s, &end);
+        if (end != s && !*end)
+            setScale(item, scale);
     }
 }
 
@@ -370,10 +373,15 @@ MeFAsset* read(MeAssetDBXMLInput* input, MeStream stream, bool firstOnly, bool& 
 {
     ReadContext ctx{input, firstOnly, nullptr};
     MeXMLInput* in = MeXMLInputCreate(stream);
+    if (!in)
+    {
+        ok = false;
+        return nullptr;
+    }
     MeXMLHandler handlers[] = {element("KARMA", readKarma), end()};
     ok = MeXMLInputProcess(in, handlers, &ctx) == MeXMLErrorNone;
     if (!ok)
-        std::fprintf(stderr, "MeAssetDBXMLIO: %s\n", MeXMLInputGetErrorString(in));
+        MeWarning(0, "MeAssetDBXMLIO: %s", MeXMLInputGetErrorString(in));
     MeXMLInputDestroy(in);
     return ctx.first;
 }
@@ -513,6 +521,8 @@ const char* MEAPI GetLatestKaFileVersionString()
 MeAssetDBXMLInput* MEAPI MeAssetDBXMLInputCreate(MeAssetDB* db, MeIDPool* IDPool)
 {
     MeAssetDBXMLInput* input = static_cast<MeAssetDBXMLInput*>(std::malloc(sizeof(MeAssetDBXMLInput)));
+    if (!input)
+        return nullptr;
     input->db = db;
     input->IDPool = IDPool;
     return input;
@@ -539,6 +549,8 @@ MeFAsset* MEAPI MeAssetDBXMLInputReadFirst(MeAssetDBXMLInput* input, MeStream st
 MeAssetDBXMLOutput* MEAPI MeAssetDBXMLOutputCreate(MeAssetDB* db)
 {
     MeAssetDBXMLOutput* output = static_cast<MeAssetDBXMLOutput*>(std::calloc(1, sizeof(MeAssetDBXMLOutput)));
+    if (!output)
+        return nullptr;
     output->db = db;
     return output;
 }

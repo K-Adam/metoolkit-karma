@@ -146,6 +146,8 @@ void mdtSetRef(MdtConstraintID c, unsigned i, const btTransform& t)
 
 btTransform mdtFrameWorld(MdtConstraintID c, unsigned i)
 {
+    // mdtRef treats any index past 0 as body 2, so the body lookup must too.
+    i = btMin(i, 1u);
     return mdtBodyTransform(c->head.mdtbody[i]) * mdtRef(c, i);
 }
 
@@ -343,6 +345,8 @@ extern "C" {
 
 void MEAPI MdtConstraintDestroy(const MdtConstraintID c)
 {
+    if (!c)
+        return;
     MdtWorldImpl* w = impl(c->head.world);
     w->enabled.erase(c);
     auto it = std::find(w->constraints.begin(), w->constraints.end(), c);

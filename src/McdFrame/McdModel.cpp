@@ -70,6 +70,14 @@ void MEAPI McdModelDestroy(McdModelID cm)
         return;
     }
     McdFrameworkID f = cm->frame;
+    if (impl(f)->modelDestroyHook)
+        impl(f)->modelDestroyHook(cm);
+    std::vector<McdModelPair*> live;
+    for (McdModelPair* p : impl(f)->livePairs)
+        if (p->model1 == cm || p->model2 == cm)
+            live.push_back(p);
+    for (McdModelPair* p : live)
+        McdGoodbye(p);
     if (cm->prev)
         cm->prev->next = cm->next;
     else

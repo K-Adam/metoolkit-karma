@@ -10,6 +10,7 @@ inline char* duplicateString(const char* s)
         return nullptr;
     size_t n = std::strlen(s) + 1;
     char* copy = static_cast<char*>(std::malloc(n));
-    std::memcpy(copy, s, n);
+    if (copy)
+        std::memcpy(copy, s, n);
     return copy;
 }

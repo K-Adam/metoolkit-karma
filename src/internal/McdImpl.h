@@ -3,8 +3,10 @@
 #include <btBulletCollisionCommon.h>
 #include <BulletCollision/CollisionShapes/btEmptyShape.h>
 
+#include <cstddef>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <vector>
 
 #include <Mcd.h>
@@ -57,6 +59,12 @@ struct McdFrameworkImpl
     std::vector<McdInteractions> interactions;
     std::set<McdModelKey> disabledPairs;
     McdRequest request{};
+    // Pairs between hello and goodbye, so a model can say goodbye to them before it is destroyed.
+    std::unordered_set<McdModelPair*> livePairs;
+    // Spaces live in McdCommon and model bodies in Mst, so both reach McdFrame's teardown through these.
+    std::set<McdSpaceID> spaces;
+    void(MEAPI* spaceDestroyHook)(McdSpaceID) = nullptr;
+    void (*modelDestroyHook)(McdModelID) = nullptr;
 };
 
 inline McdFrameworkImpl* impl(McdFrameworkID f) { return reinterpret_cast<McdFrameworkImpl*>(f); }
@@ -95,6 +103,18 @@ struct McdModelImpl
 };
 
 inline McdModelImpl* impl(McdModelID m) { return reinterpret_cast<McdModelImpl*>(m); }
+
+// impl() casts a public pointer to its impl struct, which needs the public struct at offset 0. These structs hold
+// Bullet objects with virtual functions, so offsetof is only conditionally supported and GCC warns about it.
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+static_assert(offsetof(McdFrameworkImpl, pub) == 0);
+static_assert(offsetof(McdModelImpl, pub) == 0);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 void mcdModelSync(McdModelID m);
 

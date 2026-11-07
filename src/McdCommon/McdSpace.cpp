@@ -29,10 +29,13 @@ void syncBroadphase(McdSpaceID s, McdModelID m)
 
 void detach(McdSpaceID s, McdModelID m)
 {
-    s->world.removeCollisionObject(&impl(m)->object);
+    McdModelImpl* mi = impl(m);
+    s->world.removeCollisionObject(&mi->object);
     m->mSpace = nullptr;
     m->mSpaceID = -1;
-    impl(m)->frozen = false;
+    mi->frozen = false;
+    mi->cullTable = nullptr;
+    mi->cullIndex = mi->cullId = 0;
 }
 
 bool culled(McdModelID a, McdModelID b)
@@ -151,6 +154,8 @@ McdSpaceID MEAPI McdSpaceAxisSortCreate(McdFrameworkID fwk, int axes, int object
     (void)axes;
     (void)objectCount;
     McdSpaceID s = new _McdSpace(impl(fwk));
+    s->frame->spaces.insert(s);
+    s->frame->spaceDestroyHook = McdSpaceDestroy;
     s->pairCapacity = (size_t)std::max(pairCount, 0);
     // A new space starts inside a change block so it can be populated right away.
     McdSpaceBeginChanges(s);
@@ -159,6 +164,9 @@ McdSpaceID MEAPI McdSpaceAxisSortCreate(McdFrameworkID fwk, int axes, int object
 
 void MEAPI McdSpaceDestroy(McdSpaceID s)
 {
+    if (!s)
+        return;
+    s->frame->spaces.erase(s);
     for (auto& kv : s->pairs)
         McdModelPairDestroy(kv.second);
     for (McdModelPair* p : s->removed)
@@ -303,7 +311,7 @@ int MEAPI McdSpaceGetLineSegIntersections(McdSpaceID space, MeReal* inOrig, MeRe
                                           McdLineSegIntersectResult* outList, int inMaxListSize)
 {
     std::vector<Hit> hits = lineSegHits(space, inOrig, inDest, nullptr, nullptr);
-    int n = std::min((int)hits.size(), inMaxListSize);
+    int n = std::clamp(inMaxListSize, 0, (int)hits.size());
     for (int i = 0; i < n; ++i)
         outList[i] = hits[i].second;
     return n;
@@ -384,17 +392,20 @@ int MEAPI McdSpaceGetTransitions(McdSpaceID s, McdSpacePairIterator* iter, McdMo
     return mcdFillContainer(a, iter, s->goodbye, s->hello, nullptr);
 }
 
-void MEAPI McdSpaceModelIteratorBegin(McdSpaceID, McdSpaceModelIterator* it)
+// Walks Bullet's object array backwards. Removing the current model moves the last one into its slot, which has
+// already been visited, so a loop that removes each model it gets still sees them all.
+void MEAPI McdSpaceModelIteratorBegin(McdSpaceID s, McdSpaceModelIterator* it)
 {
-    it->it = 0;
+    it->it = s->world.getNumCollisionObjects();
     it->count = 0;
 }
 
 MeBool MEAPI McdSpaceGetModel(McdSpaceID s, McdSpaceModelIterator* it, McdModelID* model)
 {
-    if (it->it >= s->world.getNumCollisionObjects())
+    it->it = std::min(it->it, s->world.getNumCollisionObjects());
+    if (it->it <= 0)
         return 0;
-    *model = modelOf(s->world.getCollisionObjectArray()[it->it++]);
+    *model = modelOf(s->world.getCollisionObjectArray()[--it->it]);
     ++it->count;
     return 1;
 }

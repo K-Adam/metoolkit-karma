@@ -32,10 +32,90 @@ MeReal movedInOneStep(MdtWorldID w, MdtBodyID b, MeReal step)
     return p[0];
 }
 
+// A sleeping chain hit at one end wakes as a whole in a single step, whatever the order of the constraint set.
+void wakeChain()
+{
+    const int n = 10;
+    MdtWorldID w = MdtWorldCreate(n, n, 1, 1);
+    MdtWorldSetGravity(w, 0, 0, 0);
+    MdtBodyID bodies[n];
+    for (int i = 0; i < n; ++i)
+    {
+        bodies[i] = MdtBodyCreate(w);
+        MdtBodySetPosition(bodies[i], (MeReal)i, 0, 0);
+    }
+    for (int i = 1; i < n; ++i)
+    {
+        MdtHingeID h = MdtHingeCreate(w);
+        MdtHingeSetBodies(h, bodies[i - 1], bodies[i]);
+        MdtHingeSetPosition(h, (MeReal)i - (MeReal)0.5, 0, 0);
+        MdtHingeEnable(h);
+    }
+    MdtBodyEnable(bodies[0]);
+    MdtBodySetLinearVelocity(bodies[0], 0, 1, 0);
+    MdtWorldStep(w, (MeReal)0.01);
+    CHECK(MdtWorldGetEnabledBodies(w) == n);
+    MdtWorldDestroy(w);
+}
+
+MdtBodyID wokenByCallback = nullptr;
+
+void MEAPI enableOther(MdtBodyID)
+{
+    MdtBodyEnable(wokenByCallback);
+}
+
+// A zero step changes nothing, and a disable callback may enable another body.
+void stepEdges()
+{
+    MdtWorldID w = MdtWorldCreate(10, 10, 1, 1);
+    MdtWorldSetGravity(w, 0, 0, 0);
+    MdtBodyID b = MdtBodyCreate(w);
+    MdtBodyEnable(b);
+    MdtBodySetLinearVelocity(b, 1, 0, 0);
+    MdtBodyAddImpulse(b, 1, 0, 0);
+    MdtWorldStep(w, 0);
+    MeVector3 p, a;
+    MdtBodyGetPosition(b, p);
+    MdtBodyGetLinearAcceleration(b, a);
+    CHECK(p[0] == 0 && std::isfinite(a[0]));
+    MdtWorldStep(w, (MeReal)0.01);
+    MdtBodyGetPosition(b, p);
+    CHECK(p[0] > (MeReal)0.01);
+
+    MdtBodySetLinearVelocity(b, 0, 0, 0);
+    wokenByCallback = MdtBodyCreate(w);
+    w->bodyDisableCallback = enableOther;
+    for (int i = 0; i < 500 && MdtBodyIsEnabled(b); ++i)
+        MdtWorldStep(w, (MeReal)0.01);
+    CHECK(!MdtBodyIsEnabled(b) && MdtBodyIsEnabled(wokenByCallback));
+    w->bodyDisableCallback = nullptr;
+    MdtWorldDestroy(w);
+}
+
+// Rotation is not capped at pi/4 per step, so a fast spinning body turns by its angular velocity.
+void fastSpin()
+{
+    MdtWorldID w = MdtWorldCreate(10, 10, 1, 1);
+    MdtWorldSetGravity(w, 0, 0, 0);
+    MdtBodyID b = MdtBodyCreate(w);
+    MdtBodyEnable(b);
+    MdtBodySetAngularVelocity(b, 0, 0, 100);
+    MdtWorldStep(w, (MeReal)0.01);
+    MeVector4 q;
+    MdtBodyGetQuaternion(b, q);
+    CHECK_NEAR(2 * std::acos(q[0]), 1, 1e-4);
+    MdtWorldDestroy(w);
+}
+
 } // namespace
 
 int main()
 {
+    wakeChain();
+    stepEdges();
+    fastSpin();
+
     MdtWorldID w = MdtWorldCreate(10, 10, 1, 1);
     MdtWorldSetGravity(w, 0, 0, 0);
     MdtWorldSetAutoDisable(w, 0);

@@ -61,7 +61,8 @@ MstBridgeID MEAPI MstBridgeCreate(McdFrameworkID frame, const unsigned int maxMa
 {
     (void)frame;
     auto* b = new MstBridge{};
-    b->maxMaterials = std::max(1u, maxMaterials);
+    // The material pair table is square, so this keeps its size within 32 bits.
+    b->maxMaterials = std::clamp(maxMaterials, 1u, 65535u);
     b->usedMaterials = 1;
     b->materialPairArray = new MstMaterialPair[b->maxMaterials * b->maxMaterials]{};
     for (unsigned int i = 0; i < b->maxMaterials * b->maxMaterials; ++i)
@@ -159,6 +160,7 @@ void MEAPI MstHandleTransitions(McdModelPairContainer* pairs, const McdSpaceID s
         McdModelPair* p = pairs->array[i];
         if (auto* g = static_cast<MdtContactGroupID>(p->responseData))
             MdtContactGroupDestroy(g);
+        p->responseData = nullptr;
         McdGoodbye(p);
     }
     McdHelloEach(pairs);

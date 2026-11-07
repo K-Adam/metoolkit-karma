@@ -38,6 +38,8 @@ McdModelPairManagerID MEAPI McdModelPairManagerCreate(int size)
 
 void MEAPI McdModelPairManagerDestroy(McdModelPairManager* manager)
 {
+    if (!manager)
+        return;
     ManagerImpl* m = impl(manager);
     for (auto& kv : m->active)
         McdModelPairDestroy(kv.second);

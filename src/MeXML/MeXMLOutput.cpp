@@ -53,6 +53,8 @@ extern "C" {
 MeXMLOutput* MEAPI MeXMLOutputCreate(MeStream stream)
 {
     MeXMLOutput* op = static_cast<MeXMLOutput*>(std::calloc(1, sizeof(MeXMLOutput)));
+    if (!op)
+        return nullptr;
     op->stream = stream;
     return op;
 }

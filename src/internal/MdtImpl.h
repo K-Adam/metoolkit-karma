@@ -2,6 +2,7 @@
 
 #include <btBulletDynamicsCommon.h>
 
+#include <cstddef>
 #include <cstring>
 #include <memory>
 #include <unordered_map>
@@ -36,6 +37,8 @@ struct MdtBodyImpl
 {
     MdtBody pub{};
     btRigidBody rb;
+    // Orientation at the start of the step, which mdtBodyPull integrates itself.
+    btQuaternion startRotation;
 
     explicit MdtBodyImpl(btCollisionShape* shape) : rb(1, nullptr, shape) {}
 };
@@ -70,9 +73,23 @@ struct MdtWorldImpl
     MdtSoftDeltas softDeltas;
     int* matrixSizeLog = nullptr;
     int matrixSizeLogSize = 0;
+    // Collision models live in Mcd, so Mst unbinds a body's model through this.
+    void (*bodyDestroyHook)(MdtBodyID) = nullptr;
 };
 
 inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>(w); }
+
+// impl() casts a public pointer to its impl struct, which needs the public struct at offset 0. These structs hold
+// Bullet objects with virtual functions, so offsetof is only conditionally supported and GCC warns about it.
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+static_assert(offsetof(MdtBodyImpl, pub) == 0);
+static_assert(offsetof(MdtWorldImpl, pub) == 0);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 // The rigid body standing in for "the world" in a constraint with a null second body.
 btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b);

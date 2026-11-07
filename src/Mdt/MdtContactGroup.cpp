@@ -21,7 +21,11 @@ void prepareGroup(MdtWorldImpl& w, MdtConstraintID c)
         k->head.mdtbody[1] = g->head.mdtbody[1];
         mdtContactPrepare(w, k);
     }
-    // Friction reads last step's values while preparing, then MdtWorldStep accumulates this step's.
+    // Friction reads last step's values while preparing, then MdtWorldStep accumulates this step's. A sleeping
+    // group keeps its values, like a disabled partition in Kea, so it wakes with its friction bound intact.
+    MdtBodyID b1 = g->head.mdtbody[0], b2 = g->head.mdtbody[1];
+    if (!(b1 && MdtBodyIsEnabled(b1)) && !(b2 && MdtBodyIsEnabled(b2)))
+        return;
     g->normalForce = 0;
     mdtClearResults(g->head);
 }

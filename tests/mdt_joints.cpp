@@ -167,10 +167,34 @@ void frames()
     MdtWorldDestroy(w);
 }
 
+// A cone with both limit angles at zero holds the swing instead of releasing it.
+void lockedCone()
+{
+    MdtWorldID w = MdtWorldCreate(10, 10, 1, 1);
+    MdtWorldSetGravity(w, 0, 0, 0);
+    MdtBodyID b = body(w, 1, 0, 0);
+    MdtSkeletalID j = MdtSkeletalCreate(w);
+    MdtSkeletalSetBodies(j, b, 0);
+    MdtSkeletalSetPosition(j, 0, 0, 0);
+    MdtSkeletalSetAxes(j, 1, 0, 0, 0, 1, 0);
+    MdtSkeletalSetConeOption(j, MdtSkeletalConeOptionCone);
+    MdtSkeletalSetConePrimaryLimitAngle(j, 0);
+    MdtSkeletalSetConeSecondaryLimitAngle(j, 0);
+    MdtSkeletalEnable(j);
+    MdtBodySetLinearVelocity(b, 0, 1, 0);
+    step(w, 50);
+    MeVector3 p;
+    MdtBodyGetPosition(b, p);
+    CHECK(fabs(p[1]) < 0.05);
+    MdtConstraintDestroy(nullptr);
+    MdtWorldDestroy(w);
+}
+
 } // namespace
 
 int main()
 {
+    lockedCone();
     disabledBody();
     destroyEnabled();
     hingeLimits();

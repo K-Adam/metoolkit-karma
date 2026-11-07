@@ -31,6 +31,15 @@ int main()
     CHECK_NEAR(p[0], 0, 1e-4);
 
     MstModelAndBodyDestroy(ball);
+
+    // Destroying a model unbinds its body, so the body's disable callback no longer reaches the freed model.
+    McdModelID loose = MstModelAndBodyCreate(universe, McdSphereCreate(frame, radius), 1);
+    MdtBodyID looseBody = McdModelGetBody(loose);
+    CHECK(looseBody->model == loose);
+    McdSpaceRemoveModel(loose);
+    McdModelDestroy(loose);
+    CHECK(looseBody->model == nullptr);
+    MdtBodyDestroy(looseBody);
     MstFixedModelDestroy(ground);
     MstUniverseDestroy(universe);
     return 0;
