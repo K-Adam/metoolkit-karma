@@ -20,7 +20,7 @@ McdInteractions* userInteractions(McdModelPair* p)
 } // namespace
 
 // A pair without a cached algorithm, because hello was skipped or a model has no impl, gets one for this call.
-int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r)
+int MEAPI mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r)
 {
     btCollisionObject s1, s2;
     btCollisionObjectWrapper w1 = mcdWrap(p->model1, s1), w2 = mcdWrap(p->model2, s2);

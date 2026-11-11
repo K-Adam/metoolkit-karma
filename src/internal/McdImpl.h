@@ -183,7 +183,7 @@ int mcdIntersectOnce(McdModelPair* p, McdIntersectResult* r);
 // Bullet's narrowphase for a pair, with its algorithm cached in m_cachedData between hello and goodbye.
 void mcdBulletHello(McdModelPair* p);
 void mcdBulletGoodbye(McdModelPair* p);
-int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r);
+int MEAPI mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r);
 // Bullet's narrowphase as an interaction table entry.
 McdInteractions mcdBulletInteraction();
 
