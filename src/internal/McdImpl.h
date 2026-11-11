@@ -66,6 +66,7 @@ struct McdFrameworkImpl
     // Spaces live in McdCommon and model bodies in Mst, so both reach McdFrame's teardown through these.
     std::set<McdSpaceID> spaces;
     void(MEAPI* spaceDestroyHook)(McdSpaceID) = nullptr;
+    MeBool(MEAPI* spaceRemoveModelHook)(McdModelID) = nullptr;
     void (*modelDestroyHook)(McdModelID) = nullptr;
 };
 

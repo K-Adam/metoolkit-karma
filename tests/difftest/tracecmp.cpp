@@ -99,8 +99,13 @@ int main(int argc, char** argv)
     }
     std::vector<std::string> want;
     for (std::string l; std::getline(in, l);)
+    {
+        // Golden traces are committed with CRLF, which getline keeps outside Windows.
+        if (!l.empty() && l.back() == '\r')
+            l.pop_back();
         if (!l.empty())
             want.push_back(l);
+    }
 
     int failures = 0;
     for (size_t i = 0; i < want.size() || i < got.size(); ++i)

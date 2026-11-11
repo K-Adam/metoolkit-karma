@@ -157,7 +157,7 @@ void MEAPI McdFrameworkDestroyAllModelsAndGeometries(McdFrameworkID f)
     while (McdModelID m = f->firstModel)
     {
         if (m->mSpace)
-            McdSpaceRemoveModel(m);
+            impl(f)->spaceRemoveModelHook(m);
         McdModelDestroy(m);
     }
     // Unreferenced geometry goes first, so an aggregate releases its elements before they are destroyed.

@@ -156,6 +156,7 @@ McdSpaceID MEAPI McdSpaceAxisSortCreate(McdFrameworkID fwk, int axes, int object
     McdSpaceID s = new _McdSpace(impl(fwk));
     s->frame->spaces.insert(s);
     s->frame->spaceDestroyHook = McdSpaceDestroy;
+    s->frame->spaceRemoveModelHook = McdSpaceRemoveModel;
     s->pairCapacity = (size_t)std::max(pairCount, 0);
     // A new space starts inside a change block so it can be populated right away.
     McdSpaceBeginChanges(s);
