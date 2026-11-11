@@ -4,7 +4,9 @@
 #include <unordered_map>
 
 #include <BulletCollision/CollisionDispatch/btSimulationIslandManager.h>
+#include <MeChunk.h>
 #include <MeMath.h>
+#include <MePool.h>
 
 #include "MdtImpl.h"
 #include "Unsupported.h"
@@ -20,7 +22,7 @@ void wakeTouchedBodies(MdtWorldImpl& w)
     do
     {
         wake.clear();
-        for (MdtConstraintID c : w.enabled)
+        for (MdtConstraintID c : mdtDictItems<MdtConstraintID>(w.pub.constraintDict))
         {
             MdtBodyID a = c->head.mdtbody[0], b = c->head.mdtbody[1];
             if (a && b && MdtBodyIsEnabled(a) != MdtBodyIsEnabled(b))
@@ -46,7 +48,7 @@ void updatePartitions(MdtWorldImpl& w)
             i = parent[i] = parent[parent[i]];
         return i;
     };
-    for (MdtConstraintID c : w.enabled)
+    for (MdtConstraintID c : mdtDictItems<MdtConstraintID>(w.pub.constraintDict))
     {
         MdtBodyID a = c->head.mdtbody[0], b = c->head.mdtbody[1];
         if (a && b && MdtBodyIsEnabled(a) && MdtBodyIsEnabled(b))
@@ -145,6 +147,16 @@ btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b)
     return b ? &impl(b)->rb : &w.fixedBody;
 }
 
+void mdtStepCleanup(MdtWorldImpl& w)
+{
+    for (btPersistentManifold* m : w.stepManifolds)
+        w.dispatcher.releaseManifold(m);
+    w.stepManifolds.clear();
+    for (auto& c : w.stepConstraints)
+        w.world.removeConstraint(c.get());
+    w.stepConstraints.clear();
+}
+
 extern "C" {
 
 MdtWorldID MEAPI MdtWorldCreate(const unsigned int maxBodies, const unsigned int maxConstraints,
@@ -159,6 +171,12 @@ MdtWorldID MEAPI MdtWorldCreate(const unsigned int maxBodies, const unsigned int
     p.params.defaultDensity = massScale / (lengthScale * lengthScale * lengthScale);
     p.toolkitVersionString = "Karma 1.2 (Bullet)";
     p.simErrorCallback = MdtDefaultSimErrorCallBack;
+    for (MeDict* d : {&p.bodyDict, &p.enabledBodyDict, &p.constraintDict})
+        MeDictInit(d, DICTCOUNT_T_MAX, mdtComparePointers);
+    MePoolAPI.init(&p.bodyPool, (int)maxBodies, sizeof(MdtBodyImpl), alignof(MdtBodyImpl));
+    // Kea's vector code wants its working memory on 16 byte boundaries.
+    for (MeChunk* c : {&p.keaPool, &p.keaTMChunk, &p.keaConstraintsChunk, &p.partOutChunk})
+        MeChunkInit(c, 16);
     setDefaults(*w);
 
     btContactSolverInfo& info = w->world.getSolverInfo();
@@ -177,7 +195,7 @@ void MEAPI MdtWorldReset(const MdtWorldID w)
 {
     MdtWorldImpl* wi = impl(w);
     setDefaults(*wi);
-    for (MdtConstraintID c : std::vector<MdtConstraintID>(wi->enabled.begin(), wi->enabled.end()))
+    for (MdtConstraintID c : mdtDictItems<MdtConstraintID>(w->constraintDict))
         MdtConstraintDisable(c);
 }
 
@@ -188,6 +206,10 @@ void MEAPI MdtWorldDestroy(const MdtWorldID w)
         MdtConstraintDestroy(wi->constraints.back());
     while (!wi->bodies.empty())
         MdtBodyDestroy(&wi->bodies.back()->pub);
+    mdtStepCleanup(*wi);
+    MePoolAPI.destroy(&w->bodyPool);
+    for (MeChunk* c : {&w->keaPool, &w->keaTMChunk, &w->keaConstraintsChunk, &w->partOutChunk})
+        MeChunkTerm(c);
     wi->world.removeRigidBody(&wi->fixedBody);
     delete wi;
 }
@@ -205,20 +227,14 @@ void MEAPI MdtWorldStep(const MdtWorldID w, const MeReal stepSize)
         if (MdtBodyIsEnabled(&b->pub))
             mdtBodyPush(*b, stepSize);
     for (MdtConstraintID c : wi.constraints)
-        if (wi.enabled.count(c))
-            if (const MdtConstraintOps* ops = mdtConstraintOps(c->head.tag); ops && ops->prepare)
-                ops->prepare(wi, c);
+        if (MdtConstraintIsEnabled(c))
+            mdtPrepare(wi, c);
 
     wi.softDeltas.clear();
     wi.world.stepSimulation(stepSize, 0);
 
     mdtContactCollectForces(wi, stepSize);
-    for (btPersistentManifold* m : wi.stepManifolds)
-        wi.dispatcher.releaseManifold(m);
-    wi.stepManifolds.clear();
-    for (auto& c : wi.stepConstraints)
-        wi.world.removeConstraint(c.get());
-    wi.stepConstraints.clear();
+    mdtStepCleanup(wi);
     for (MdtBodyImpl* b : wi.bodies)
         if (MdtBodyIsEnabled(&b->pub))
             mdtBodyPull(*b, stepSize);
@@ -243,7 +259,7 @@ int MEAPI MdtWorldGetTotalConstraints(const MdtWorldID w)
 
 int MEAPI MdtWorldGetEnabledConstraints(const MdtWorldID w)
 {
-    return (int)impl(w)->enabled.size();
+    return w->nEnabledConstraints;
 }
 
 int MEAPI MdtWorldGetMaxBodies(const MdtWorldID w)
@@ -420,7 +436,7 @@ void MEAPI MdtWorldForAllConstraints(const MdtWorldID w, MdtConstraintIteratorCB
     MdtWorldImpl* wi = impl(w);
     std::vector<MdtConstraintID> enabled;
     for (MdtConstraintID c : wi->constraints)
-        if (wi->enabled.count(c))
+        if (MdtConstraintIsEnabled(c))
             enabled.push_back(c);
     for (MdtConstraintID c : enabled)
         cb(c, ccbdata);
@@ -455,28 +471,24 @@ int MEAPI MdtWorldGetMaxMemoryPoolUsed(const MdtWorldID)
     return 0;
 }
 
-MeChunk* MEAPI MdtWorldGetKeaPoolChunk(const MdtWorldID)
+MeChunk* MEAPI MdtWorldGetKeaPoolChunk(const MdtWorldID w)
 {
-    ME_UNSUPPORTED("MdtWorldGetKeaPoolChunk");
-    return nullptr;
+    return &w->keaPool;
 }
 
-MeChunk* MEAPI MdtWorldGetPartitionOutputChunk(const MdtWorldID)
+MeChunk* MEAPI MdtWorldGetPartitionOutputChunk(const MdtWorldID w)
 {
-    ME_UNSUPPORTED("MdtWorldGetPartitionOutputChunk");
-    return nullptr;
+    return &w->partOutChunk;
 }
 
-MeChunk* MEAPI MdtWorldGetKeaTMChunk(const MdtWorldID)
+MeChunk* MEAPI MdtWorldGetKeaTMChunk(const MdtWorldID w)
 {
-    ME_UNSUPPORTED("MdtWorldGetKeaTMChunk");
-    return nullptr;
+    return &w->keaTMChunk;
 }
 
-MeChunk* MEAPI MdtWorldGetKeaConstraintsChunk(const MdtWorldID)
+MeChunk* MEAPI MdtWorldGetKeaConstraintsChunk(const MdtWorldID w)
 {
-    ME_UNSUPPORTED("MdtWorldGetKeaConstraintsChunk");
-    return nullptr;
+    return &w->keaConstraintsChunk;
 }
 
 void MEAPI MdtWorldSetKeaDebugRequest(const MdtWorldID, const MdtKeaDebugDataRequest)

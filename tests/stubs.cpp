@@ -1,8 +1,6 @@
 #include <Mcd.h>
 #include <McdConvexMesh.h>
 #include <McdPrimitives.h>
-#include <MdtKea.h>
-#include <MdtMainLoop.h>
 #include <MeApp.h>
 #include <MeViewer.h>
 #include <RMenu.h>
@@ -28,9 +26,6 @@ int main()
     CHECK(RMenuCreate(nullptr, "menu") == nullptr);
     CHECK(RCameraGetDistance(nullptr) == 0);
     CHECK(MeAppCreate(nullptr, nullptr, nullptr) == nullptr);
-
-    CHECK(MdtKeaMemoryRequired(nullptr, 0, 0, 0) == 0);
-    CHECK(MdtKeaConstraintsCreateFromChunk(nullptr, 1, 1, 1) == nullptr);
 
     McdFrameworkID frame = McdInit(0, 100, 0, 1);
     McdPrimitivesRegisterTypes(frame);

@@ -4,6 +4,8 @@
 #include <BulletCollision/NarrowPhaseCollision/btVoronoiSimplexSolver.h>
 #include <LinearMath/btTransformUtil.h>
 
+#include <utility>
+
 #include "McdImpl.h"
 
 namespace {
@@ -17,18 +19,28 @@ McdInteractions* userInteractions(McdModelPair* p)
 
 } // namespace
 
+// A pair without a cached algorithm, because hello was skipped or a model has no impl, gets one for this call.
 int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r)
 {
-    auto* algorithm = static_cast<btCollisionAlgorithm*>(p->m_cachedData);
+    btCollisionObject s1, s2;
+    btCollisionObjectWrapper w1 = mcdWrap(p->model1, s1), w2 = mcdWrap(p->model2, s2);
+    btCollisionDispatcher& dispatcher = impl(p->model1->frame)->dispatcher;
+    auto* cached = static_cast<btCollisionAlgorithm*>(p->m_cachedData);
+    btCollisionAlgorithm* algorithm =
+        cached ? cached : dispatcher.findAlgorithm(&w1, &w2, nullptr, BT_CONTACT_POINT_ALGORITHMS);
     if (!algorithm)
         return 0;
-    btCollisionObjectWrapper w1 = mcdWrap(p->model1), w2 = mcdWrap(p->model2);
     btManifoldResult result(&w1, &w2);
     result.m_closestPointDistanceThreshold = mcdPairTolerance(p);
     btDispatcherInfo info;
     algorithm->processCollision(&w1, &w2, info, &result);
-    mcdSetMeanNormal(r, mcdAddManifoldContacts(algorithm, &impl(p->model1)->object, result.m_closestPointDistanceThreshold,
-                                               r, mcdContactLimit(p, r)));
+    mcdSetMeanNormal(r, mcdAddManifoldContacts(algorithm, w1.getCollisionObject(),
+                                               result.m_closestPointDistanceThreshold, r, mcdContactLimit(p, r)));
+    if (!cached)
+    {
+        algorithm->~btCollisionAlgorithm();
+        dispatcher.freeCollisionAlgorithm(algorithm);
+    }
     return r->contactCount > 0;
 }
 
@@ -75,6 +87,10 @@ void MEAPI McdHello(McdModelPair* p)
         return;
     p->phase = kMcdFFStateHello;
     McdFrameworkID f = p->model1->frame;
+    McdInteractions* table =
+        McdFrameworkGetInteractions(f, McdModelGetGeometryType(p->model1), McdModelGetGeometryType(p->model2));
+    if (table && table->swap)
+        std::swap(p->model1, p->model2);
     impl(f)->livePairs.insert(p);
     if (f->mHelloCallbackFnPtr)
         f->mHelloCallbackFnPtr(p);
@@ -167,20 +183,22 @@ MeBool MEAPI McdIntersectAt(McdModelPair* p, McdIntersectResult* result, MeReal 
 {
     McdModelID models[2] = {p->model1, p->model2};
     MeMatrix4 moved[2];
-    MeMatrix4Ptr saved[2];
+    MeMatrix4Ptr saved[2], savedRel[2];
     for (int i = 0; i < 2; ++i)
     {
         btTransform t = predicted(models[i], time);
         fromBtTransform(t, moved[i]);
         saved[i] = models[i]->mInstance.mTM;
+        savedRel[i] = models[i]->mRelTM;
         models[i]->mInstance.mTM = moved[i];
-        impl(models[i])->object.setWorldTransform(t);
+        models[i]->mRelTM = nullptr;
         McdGeometryInstanceUpdateAABB(&models[i]->mInstance, moved[i], 1);
     }
     MeBool touch = McdIntersect(p, result);
     for (int i = 0; i < 2; ++i)
     {
         models[i]->mInstance.mTM = saved[i];
+        models[i]->mRelTM = savedRel[i];
         mcdModelSync(models[i]);
     }
     return touch;
@@ -194,8 +212,9 @@ MeBool MEAPI McdSafeTime(McdModelPair* p, MeReal maxTime, McdSafeTimeResult* res
                                                      McdModelGetGeometryType(p->model2));
     if (i && i->safetimeFn)
         return i->safetimeFn(p, maxTime, result) != 0;
-    const btCollisionShape* s1 = impl(p->model1)->object.getCollisionShape();
-    const btCollisionShape* s2 = impl(p->model2)->object.getCollisionShape();
+    btCollisionObject scratch1, scratch2;
+    const btCollisionShape* s1 = mcdModelObject(p->model1, scratch1).getCollisionShape();
+    const btCollisionShape* s2 = mcdModelObject(p->model2, scratch2).getCollisionShape();
     if (!s1->isConvex() || !s2->isConvex())
         return 0;
     btVoronoiSimplexSolver simplex;
@@ -214,7 +233,8 @@ unsigned int MEAPI McdLineSegIntersect(const McdModelID cm, MeReal* const inOrig
 {
     if (McdLineSegIntersectFnPtr fn = McdGeometryGetLineSegIntersectFnPtr(McdModelGetGeometry(cm)))
         return fn(cm, inOrig, inDest, outOverlap) != 0;
-    btCollisionObject& o = impl(cm)->object;
+    btCollisionObject scratch;
+    btCollisionObject& o = mcdModelObject(cm, scratch);
     btVector3 from = toBt(inOrig), to = toBt(inDest);
     outOverlap->model = cm;
     if (pointInside(o.getCollisionShape(), o.getWorldTransform(), from))
@@ -238,9 +258,27 @@ unsigned int MEAPI McdLineSegIntersect(const McdModelID cm, MeReal* const inOrig
 
 } // extern "C"
 
-btCollisionObjectWrapper mcdWrap(McdModelID m)
+// The public transform is read on every query, since a model outside a space is never synced by an update.
+btCollisionObject& mcdModelObject(McdModelID m, btCollisionObject& scratch)
 {
+    if (!impl(m->frame)->models.count(m))
+    {
+        scratch.setCollisionShape(mcdGeometryShape(m->mInstance.mGeometry));
+        scratch.setCollisionFlags(0);
+        scratch.setUserPointer(m);
+        scratch.setWorldTransform(toBtTransform(m->mInstance.mTM));
+        return scratch;
+    }
+    if (m->mRelTM && m->mRefTM)
+        McdModelCompoundTransforms(m);
     btCollisionObject& o = impl(m)->object;
+    o.setWorldTransform(toBtTransform(m->mInstance.mTM));
+    return o;
+}
+
+btCollisionObjectWrapper mcdWrap(McdModelID m, btCollisionObject& scratch)
+{
+    btCollisionObject& o = mcdModelObject(m, scratch);
     return btCollisionObjectWrapper(nullptr, o.getCollisionShape(), &o, o.getWorldTransform(), -1, -1);
 }
 
@@ -289,11 +327,18 @@ int mcdIntersectOnce(McdModelPair* p, McdIntersectResult* r)
     return r->touch;
 }
 
+// An algorithm keeps pointers to the objects it was made for, so a model without an impl is not cached.
 void mcdBulletHello(McdModelPair* p)
 {
-    btCollisionObjectWrapper w1 = mcdWrap(p->model1), w2 = mcdWrap(p->model2);
-    p->m_cachedData =
-        impl(p->model1->frame)->dispatcher.findAlgorithm(&w1, &w2, nullptr, BT_CONTACT_POINT_ALGORITHMS);
+    McdFrameworkImpl* f = impl(p->model1->frame);
+    if (!f->models.count(p->model1) || !f->models.count(p->model2))
+    {
+        p->m_cachedData = nullptr;
+        return;
+    }
+    btCollisionObject s1, s2;
+    btCollisionObjectWrapper w1 = mcdWrap(p->model1, s1), w2 = mcdWrap(p->model2, s2);
+    p->m_cachedData = f->dispatcher.findAlgorithm(&w1, &w2, nullptr, BT_CONTACT_POINT_ALGORITHMS);
 }
 
 void mcdBulletGoodbye(McdModelPair* p)
@@ -306,3 +351,26 @@ void mcdBulletGoodbye(McdModelPair* p)
     }
 }
 
+namespace {
+
+MeBool MEAPI bulletHello(McdModelPair* p)
+{
+    mcdBulletHello(p);
+    return 1;
+}
+
+void MEAPI bulletGoodbye(McdModelPair* p)
+{
+    mcdBulletGoodbye(p);
+}
+
+} // namespace
+
+McdInteractions mcdBulletInteraction()
+{
+    McdInteractions i{};
+    i.helloFn = bulletHello;
+    i.goodbyeFn = bulletGoodbye;
+    i.intersectFn = mcdBulletIntersect;
+    return i;
+}

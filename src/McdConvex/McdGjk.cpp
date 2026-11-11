@@ -5,19 +5,10 @@
 
 #include "McdImpl.h"
 
-// Karma's GJK and plane slicing are replaced by Bullet's convex narrowphase. The entry points keep their
-// registration roles: McdCacheHello, McdCacheGoodbye and McdGjkCgIntersect form a convex pair interaction.
+// Karma's GJK and plane slicing are replaced by Bullet's convex narrowphase. McdCacheHello, McdCacheGoodbye and
+// McdGjkCgIntersect stay as its public entry points.
 
 namespace {
-
-McdInteractions gjkInteraction()
-{
-    McdInteractions i{};
-    i.helloFn = McdCacheHello;
-    i.goodbyeFn = McdCacheGoodbye;
-    i.intersectFn = McdGjkCgIntersect;
-    return i;
-}
 
 void addPlaneContact(const McdPlanePair& pp, McdIntersectResult* r, const btVector3& point, MeReal inflate)
 {
@@ -71,19 +62,25 @@ int MEAPI McdPlaneIntersect(McdModelPair* p, McdIntersectResult* result)
 
 MeBool MEAPI McdConvexMeshRegisterBoxAndSphereFns(McdFramework* frame)
 {
-    mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypeBox, gjkInteraction());
-    mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypeSphere, gjkInteraction());
+    mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypeBox, mcdBulletInteraction());
+    mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypeSphere, mcdBulletInteraction());
     return 1;
 }
 
 MeBool MEAPI McdConvexMeshPrimitivesRegisterInteractions(McdFramework* frame)
 {
     McdConvexMeshRegisterBoxAndSphereFns(frame);
-    for (int type : {kMcdGeometryTypeConvexMesh, kMcdGeometryTypeCylinder, kMcdGeometryTypeSphyl})
-        mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, type, gjkInteraction());
+    for (int type : {kMcdGeometryTypeCylinder, kMcdGeometryTypeSphyl})
+        mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, type, mcdBulletInteraction());
     mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypePlane,
                            mcdIntersectInteraction(intersectConvexMeshPlane));
     mcdRegisterTriangleListInteraction(frame, kMcdGeometryTypeConvexMesh);
+    return 1;
+}
+
+MeBool MEAPI McdConvexMeshConvexMeshRegisterInteraction(McdFramework* frame)
+{
+    mcdSetInteractionsBoth(frame, kMcdGeometryTypeConvexMesh, kMcdGeometryTypeConvexMesh, mcdBulletInteraction());
     return 1;
 }
 

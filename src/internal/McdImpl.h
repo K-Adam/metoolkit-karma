@@ -61,6 +61,8 @@ struct McdFrameworkImpl
     McdRequest request{};
     // Pairs between hello and goodbye, so a model can say goodbye to them before it is destroyed.
     std::unordered_set<McdModelPair*> livePairs;
+    // Models made by McdModelCreate, the only ones with an impl.
+    std::unordered_set<McdModelID> models;
     // Spaces live in McdCommon and model bodies in Mst, so both reach McdFrame's teardown through these.
     std::set<McdSpaceID> spaces;
     void(MEAPI* spaceDestroyHook)(McdSpaceID) = nullptr;
@@ -136,7 +138,10 @@ inline void mcdAddContact(McdIntersectResult* r, const btVector3& position, cons
     c.element1.ptr = c.element2.ptr = nullptr;
 }
 
-btCollisionObjectWrapper mcdWrap(McdModelID m);
+// The model's Bullet object at its current transform. A model the framework did not create, such as a copy on
+// the caller's stack, has no impl and is described in scratch instead.
+btCollisionObject& mcdModelObject(McdModelID m, btCollisionObject& scratch);
+btCollisionObjectWrapper mcdWrap(McdModelID m, btCollisionObject& scratch);
 
 // Copies an algorithm's manifold points within tolerance into r with normals pointing towards object1, up to
 // limit, and returns the sum of the normals added.
@@ -179,6 +184,8 @@ int mcdIntersectOnce(McdModelPair* p, McdIntersectResult* r);
 void mcdBulletHello(McdModelPair* p);
 void mcdBulletGoodbye(McdModelPair* p);
 int mcdBulletIntersect(McdModelPair* p, McdIntersectResult* r);
+// Bullet's narrowphase as an interaction table entry.
+McdInteractions mcdBulletInteraction();
 
 // Mass properties are reported for unit density: inertia is per unit mass and volume is returned separately.
 inline void mcdSetDiagonalInertia(MeMatrix4 relTM, MeMatrix3 inertia, MeReal ix, MeReal iy, MeReal iz)
@@ -192,9 +199,15 @@ inline void mcdSetDiagonalInertia(MeMatrix4 relTM, MeMatrix3 inertia, MeReal ix,
     inertia[2][2] = iz;
 }
 
+// Karma lists a pair in one order, type a as model1. The reversed entry has swap set, and McdHello swaps such a
+// pair's models, which callers like UT2004 rely on when they dispatch on the table themselves.
 inline void mcdSetInteractionsBoth(McdFramework* frame, int a, int b, McdInteractions i)
 {
+    i.swap = 0;
     McdFrameworkSetInteractions(frame, a, b, &i);
+    if (a == b)
+        return;
+    i.swap = 1;
     McdFrameworkSetInteractions(frame, b, a, &i);
 }
 

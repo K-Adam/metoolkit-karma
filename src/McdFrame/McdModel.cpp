@@ -50,6 +50,7 @@ McdModelID MEAPI McdModelCreate(McdGeometryID g)
     mi->object.setCollisionFlags(0);
     mi->object.setUserPointer(&m);
     McdGeometryIncrementReferenceCount(g);
+    impl(f)->models.insert(&m);
 
     m.next = f->firstModel;
     if (m.next)
@@ -85,6 +86,7 @@ void MEAPI McdModelDestroy(McdModelID cm)
     if (cm->next)
         cm->next->prev = cm->prev;
     --f->modelCount;
+    impl(f)->models.erase(cm);
     McdGeometryDecrementReferenceCount(cm->mInstance.mGeometry);
     mcdFreeChildInstances(&cm->mInstance);
     std::set<McdModelKey>& disabled = impl(f)->disabledPairs;

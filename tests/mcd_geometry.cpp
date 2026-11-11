@@ -115,8 +115,9 @@ int main()
     CHECK(n >= 4);
     for (int i = 0; i < n; ++i)
         CHECK_NEAR(contacts[i].normal[2], 1, 1e-3);
+    // Hello swaps the pair to Karma's order, box first, so the normals still point towards the box.
     n = intersect(terrain, box, contacts);
-    CHECK(n >= 4 && contacts[0].normal[2] < -0.999f);
+    CHECK(n >= 4 && contacts[0].normal[2] > 0.999f);
 
     // A cube hull: six quads, unit volume, four contacts when sunk into a plane.
     MeVector3 cube[8];

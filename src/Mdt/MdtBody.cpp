@@ -3,6 +3,7 @@
 #include <vector>
 
 #include <MeMath.h>
+#include <MePool.h>
 
 #include "MdtImpl.h"
 
@@ -45,20 +46,31 @@ bool touches(MdtConstraintID c, MdtBodyID b)
     return c->head.mdtbody[0] == b || c->head.mdtbody[1] == b;
 }
 
+// The links that place a body in its world's dictionaries, which a whole-struct assignment must not touch.
+struct Links
+{
+    MeDictNode worldNode, worldEnabledNode;
+    MeDict constraintDict;
+    int flags;
+
+    explicit Links(const MdtBody& b)
+        : worldNode(b.worldNode), worldEnabledNode(b.worldEnabledNode), constraintDict(b.constraintDict),
+          flags(b.flags)
+    {
+    }
+
+    void restore(MdtBody& b) const
+    {
+        b.worldNode = worldNode;
+        b.worldEnabledNode = worldEnabledNode;
+        b.constraintDict = constraintDict;
+        b.flags = flags;
+    }
+};
+
 bool isContact(MdtConstraintID c)
 {
     return c->head.tag == MdtBclCONTACT || c->head.tag == MdtBclCONTACTGROUP;
-}
-
-// Karma keeps a body's enabled constraints in its own list, so iteration skips disabled ones.
-std::vector<MdtConstraintID> enabledConstraints(MdtBodyID b)
-{
-    MdtWorldImpl* w = impl(b->world);
-    std::vector<MdtConstraintID> out;
-    for (MdtConstraintID c : w->constraints)
-        if (touches(c, b) && w->enabled.count(c))
-            out.push_back(c);
-    return out;
 }
 
 void destroyIf(MdtBodyID b, bool contactsOnly)
@@ -77,7 +89,7 @@ void destroyIf(MdtBodyID b, bool contactsOnly)
 
 void disableIf(MdtBodyID b, bool contactsOnly)
 {
-    for (MdtConstraintID c : enabledConstraints(b))
+    for (MdtConstraintID c : mdtDictItems<MdtConstraintID>(b->constraintDict))
         if (!contactsOnly || isContact(c))
             MdtConstraintDisable(c);
 }
@@ -180,13 +192,18 @@ extern "C" {
 MdtBodyID MEAPI MdtBodyCreate(const MdtWorldID w)
 {
     MdtWorldImpl* wi = impl(w);
-    if ((int)wi->bodies.size() >= w->maxBodies)
+    // Karma takes bodies from the world's pool, so a replaced MePoolAPI decides the capacity.
+    void* mem = MePoolAPI.getStruct(&w->bodyPool);
+    if (!mem)
     {
         MeWarning(0, "MdtBodyCreate: world already holds its maximum of %d bodies", w->maxBodies);
         return nullptr;
     }
-    auto* b = new MdtBodyImpl(&wi->emptyShape);
+    auto* b = new (mem) MdtBodyImpl(&wi->emptyShape);
     b->pub.world = w;
+    MeDictInit(&b->pub.constraintDict, DICTCOUNT_T_MAX, mdtComparePointers);
+    mdtDictAdd(w->bodyDict, b->pub.worldNode, &b->pub);
+    ++w->nBodies;
     MdtBodyReset(&b->pub);
     b->rb.setUserPointer(&b->pub);
     b->rb.forceActivationState(DISABLE_DEACTIVATION);
@@ -203,7 +220,9 @@ void MEAPI MdtBodyReset(const MdtBodyID b)
     MdtWorldID w = b->world;
     MeI32 sortKey = b->sortKey;
     void* model = b->model;
+    Links links(*b);
     *b = MdtBody{};
+    links.restore(*b);
     b->world = w;
     b->sortKey = sortKey;
     b->model = model;
@@ -232,8 +251,11 @@ void MEAPI MdtBodyDestroy(const MdtBodyID b)
         wi->bodyDestroyHook(b);
     destroyIf(b, false);
     MdtBodyDisable(b);
+    MeDictDelete(&b->world->bodyDict, &b->worldNode);
+    --b->world->nBodies;
     wi->bodies.erase(std::find(wi->bodies.begin(), wi->bodies.end(), impl(b)));
-    delete impl(b);
+    impl(b)->~MdtBodyImpl();
+    MePoolAPI.putStruct(&wi->pub.bodyPool, impl(b));
 }
 
 // The copy starts disabled and without a collision model, like a newly created body.
@@ -242,7 +264,9 @@ MdtBodyID MEAPI MdtBodyCopy(const MdtBodyID b, const MdtWorldID w)
     MdtBodyID c = MdtBodyCreate(w);
     if (!c)
         return nullptr;
+    Links links(*c);
     *c = *b;
+    links.restore(*c);
     c->world = w;
     c->model = nullptr;
     c->enabledTime = 0;
@@ -256,6 +280,8 @@ void MEAPI MdtBodyEnable(const MdtBodyID b)
         return;
     MdtWorldImpl* wi = impl(b->world);
     wi->world.addRigidBody(&impl(b)->rb, 0, 0);
+    mdtDictAdd(b->world->enabledBodyDict, b->worldEnabledNode, b);
+    b->flags |= MdtEntityEnabledFlag;
     ++b->world->nEnabledBodies;
     b->enabledTime = 0;
     if (b->world->bodyEnableCallback)
@@ -267,6 +293,8 @@ void MEAPI MdtBodyDisable(const MdtBodyID b)
     if (!MdtBodyIsEnabled(b))
         return;
     impl(b->world)->world.removeRigidBody(&impl(b)->rb);
+    MeDictDelete(&b->world->enabledBodyDict, &b->worldEnabledNode);
+    b->flags &= ~MdtEntityEnabledFlag;
     --b->world->nEnabledBodies;
     b->enabledTime = 0;
     b->partitionIndex = -1;
@@ -276,7 +304,7 @@ void MEAPI MdtBodyDisable(const MdtBodyID b)
 
 MeBool MEAPI MdtBodyIsEnabled(const MdtBodyID b)
 {
-    return impl(b)->rb.isInWorld();
+    return (b->flags & MdtEntityEnabledFlag) != 0;
 }
 
 void MEAPI MdtBodyLog(const MdtBodyID b)
@@ -615,34 +643,28 @@ void MEAPI MdtBodySetSortKey(const MdtBodyID b, const MeI32 key)
 
 MdtConstraintID MEAPI MdtBodyGetFirstConstraint(MdtBodyID b)
 {
-    std::vector<MdtConstraintID> cs = enabledConstraints(b);
-    return cs.empty() ? nullptr : cs.front();
+    return mdtDictGet<MdtConstraintID>(MeDictFirst(&b->constraintDict));
 }
 
 MdtConstraintID MEAPI MdtBodyGetNextConstraint(MdtBodyID b, MdtConstraintID c)
 {
-    std::vector<MdtConstraintID> cs = enabledConstraints(b);
-    auto it = std::find(cs.begin(), cs.end(), c);
-    return it == cs.end() || ++it == cs.end() ? nullptr : *it;
+    MeDictNode* n = MeDictLookup(&b->constraintDict, c);
+    return mdtDictGet<MdtConstraintID>(n ? MeDictNext(&b->constraintDict, n) : nullptr);
 }
 
 MdtBodyID MEAPI MdtBodyGetFirst(const MdtWorldID w)
 {
-    MdtWorldImpl* wi = impl(w);
-    return wi->bodies.empty() ? nullptr : &wi->bodies.front()->pub;
+    return mdtDictGet<MdtBodyID>(MeDictFirst(&w->bodyDict));
 }
 
-// Linear search per call, keep an index in MdtBodyImpl if worlds grow large.
 MdtBodyID MEAPI MdtBodyGetNext(const MdtBodyID b)
 {
-    std::vector<MdtBodyImpl*>& bodies = impl(b->world)->bodies;
-    auto it = std::find(bodies.begin(), bodies.end(), impl(b));
-    return it == bodies.end() || ++it == bodies.end() ? nullptr : &(*it)->pub;
+    return mdtDictGet<MdtBodyID>(MeDictNext(&b->world->bodyDict, &b->worldNode));
 }
 
 void MEAPI MdtBodyForAllConstraints(const MdtBodyID b, MdtConstraintIteratorCBPtr cb, void* ccbdata)
 {
-    for (MdtConstraintID c : enabledConstraints(b))
+    for (MdtConstraintID c : mdtDictItems<MdtConstraintID>(b->constraintDict))
         cb(c, ccbdata);
 }
 

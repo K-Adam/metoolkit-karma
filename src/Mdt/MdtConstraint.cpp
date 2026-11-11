@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <functional>
 
 #include <MeMath.h>
 
@@ -103,7 +104,55 @@ void setWorldAxes(MdtConstraintID c, unsigned i, const btMatrix3x3& world)
     setRelativeAxes(c, i, mdtBodyTransform(c->head.mdtbody[i]).getBasis().transpose() * world);
 }
 
+bool isEnabled(MdtConstraintID c)
+{
+    return (c->head.flags & MdtEntityEnabledFlag) != 0;
+}
+
+// An enabled constraint is listed in its world and in each of its bodies, as Karma's partitioner walks them.
+void link(MdtConstraintID c)
+{
+    MdtConstraintHeader& h = c->head;
+    mdtDictAdd(h.world->constraintDict, h.worldNode, c);
+    for (int i = 0; i < MdtKeaMAXBODYCONSTRAINT; ++i)
+        if (h.mdtbody[i])
+            mdtDictAdd(h.mdtbody[i]->constraintDict, h.bodyNode[i], c);
+}
+
+void unlink(MdtConstraintID c)
+{
+    MdtConstraintHeader& h = c->head;
+    MeDictDelete(&h.world->constraintDict, &h.worldNode);
+    for (int i = 0; i < MdtKeaMAXBODYCONSTRAINT; ++i)
+        if (h.mdtbody[i])
+            MeDictDelete(&h.mdtbody[i]->constraintDict, &h.bodyNode[i]);
+}
+
 } // namespace
+
+int mdtComparePointers(const void* a, const void* b)
+{
+    std::less<const void*> less;
+    return less(a, b) ? -1 : less(b, a) ? 1 : 0;
+}
+
+void mdtDictAdd(MeDict& d, MeDictNode& n, void* object)
+{
+    MeDictNodeInit(&n, object);
+    MeDictInsert(&d, &n, object);
+}
+
+void mdtPrepare(MdtWorldImpl& w, MdtConstraintID c)
+{
+    if (const MdtConstraintOps* ops = mdtConstraintOps(c->head.tag); ops && ops->prepare)
+        ops->prepare(w, c);
+}
+
+int mdtKeaConstraintCount(MdtConstraintID c)
+{
+    MdtContactGroupID g = MdtConstraintDCastContactGroup(c);
+    return g ? g->count : 1;
+}
 
 void mdtRegisterConstraintOps(int tag, const MdtConstraintOps* ops)
 {
@@ -347,8 +396,8 @@ void MEAPI MdtConstraintDestroy(const MdtConstraintID c)
 {
     if (!c)
         return;
+    MdtConstraintDisable(c);
     MdtWorldImpl* w = impl(c->head.world);
-    w->enabled.erase(c);
     auto it = std::find(w->constraints.begin(), w->constraints.end(), c);
     if (it != w->constraints.end())
         w->constraints.erase(it);
@@ -357,20 +406,28 @@ void MEAPI MdtConstraintDestroy(const MdtConstraintID c)
 
 void MEAPI MdtConstraintEnable(const MdtConstraintID c)
 {
-    impl(c->head.world)->enabled.insert(c);
+    if (isEnabled(c))
+        return;
+    link(c);
+    c->head.flags |= MdtEntityEnabledFlag;
+    ++c->head.world->nEnabledConstraints;
 }
 
 void MEAPI MdtConstraintDisable(const MdtConstraintID c)
 {
     MdtWorldImpl* w = impl(c->head.world);
-    w->enabled.erase(c);
     if (MdtJointBullet* j = joint(c))
         mdtJointRemove(*w, *j);
+    if (!isEnabled(c))
+        return;
+    unlink(c);
+    c->head.flags &= ~MdtEntityEnabledFlag;
+    --c->head.world->nEnabledConstraints;
 }
 
 MeBool MEAPI MdtConstraintIsEnabled(const MdtConstraintID c)
 {
-    return impl(c->head.world)->enabled.count(c) != 0;
+    return isEnabled(c);
 }
 
 MdtBodyID MEAPI MdtConstraintGetBody(const MdtConstraintID c, const unsigned int bodyindex)
@@ -386,8 +443,13 @@ void MEAPI MdtConstraintSetBodies(const MdtConstraintID c, const MdtBodyID b1, c
         mdtJointRemove(*impl(c->head.world), *j);
         j->c.reset();
     }
+    bool enabled = isEnabled(c);
+    if (enabled)
+        unlink(c);
     c->head.mdtbody[0] = b1;
     c->head.mdtbody[1] = b2;
+    if (enabled)
+        link(c);
     if (c->head.setBodyFunc)
         c->head.setBodyFunc(c, b1, b2);
 }
@@ -557,23 +619,14 @@ void MEAPI MdtConstraintBodySetAxesRel(const MdtConstraintID c, const unsigned i
 // Karma's world dictionary holds the enabled constraints.
 MdtConstraintID MEAPI MdtConstraintGetFirst(const MdtWorldID w)
 {
-    MdtWorldImpl* wi = impl(w);
-    for (MdtConstraintID c : wi->constraints)
-        if (wi->enabled.count(c))
-            return c;
-    return nullptr;
+    return mdtDictGet<MdtConstraintID>(MeDictFirst(&w->constraintDict));
 }
 
 MdtConstraintID MEAPI MdtConstraintGetNext(const MdtConstraintID c)
 {
-    MdtWorldImpl* wi = impl(c->head.world);
-    auto it = std::find(wi->constraints.begin(), wi->constraints.end(), c);
-    if (it == wi->constraints.end())
+    if (!isEnabled(c))
         return nullptr;
-    for (++it; it != wi->constraints.end(); ++it)
-        if (wi->enabled.count(*it))
-            return *it;
-    return nullptr;
+    return mdtDictGet<MdtConstraintID>(MeDictNext(&c->head.world->constraintDict, &c->head.worldNode));
 }
 
 } // extern "C"

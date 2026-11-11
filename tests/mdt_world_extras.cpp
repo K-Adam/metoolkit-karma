@@ -149,10 +149,10 @@ int main()
     MdtWorldSetSimErrorCB(w, MdtDefaultSimErrorCallBack, nullptr);
     MdtWorldStep(w, (MeReal)0.01);
 
-    // Solver internals Bullet replaces.
-    CHECK(MdtWorldGetKeaPoolChunk(w) == nullptr);
-    CHECK(MdtWorldGetPartitionOutputChunk(w) == nullptr);
-    CHECK(MdtWorldGetKeaTMChunk(w) == nullptr && MdtWorldGetKeaConstraintsChunk(w) == nullptr);
+    // The chunks callers stepping partitions themselves draw from.
+    CHECK(MdtWorldGetKeaPoolChunk(w) == &w->keaPool);
+    CHECK(MdtWorldGetPartitionOutputChunk(w) == &w->partOutChunk);
+    CHECK(MdtWorldGetKeaTMChunk(w) == &w->keaTMChunk && MdtWorldGetKeaConstraintsChunk(w) == &w->keaConstraintsChunk);
     CHECK(MdtWorldGetMaxMemoryPoolUsed(w) == 0);
     MdtKeaDebugDataRequest request{};
     MdtWorldSetKeaDebugRequest(w, request);

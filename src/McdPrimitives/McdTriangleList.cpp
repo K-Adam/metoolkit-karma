@@ -54,7 +54,9 @@ int MEAPI mcdTriangleListIntersect(McdModelPair* p, McdIntersectResult* r)
     McdModelID list = listFirst ? p->model1 : p->model2;
     McdModelID other = listFirst ? p->model2 : p->model1;
     TriListImpl* tl = get(McdModelGetGeometry(list));
-    btCollisionObject& otherObject = impl(other)->object;
+    btCollisionObject otherScratch;
+    btCollisionObjectWrapper otherWrap = mcdWrap(other, otherScratch);
+    const btCollisionObject& otherObject = *otherWrap.getCollisionObject();
     if (!tl->pub.triangleListGenerator || !otherObject.getCollisionShape()->isConvex())
         return 0;
 
@@ -71,7 +73,6 @@ int MEAPI mcdTriangleListIntersect(McdModelPair* p, McdIntersectResult* r)
         count = std::min(count, tl->pub.triangleMaxCount);
 
     btCollisionDispatcher& dispatcher = impl(list->frame)->dispatcher;
-    btCollisionObjectWrapper otherWrap = mcdWrap(other);
     btDispatcherInfo info;
     int limit = mcdContactLimit(p, r);
     btVector3 sum(0, 0, 0);

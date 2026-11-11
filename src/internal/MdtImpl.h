@@ -6,10 +6,11 @@
 #include <cstring>
 #include <memory>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include <Mdt.h>
+#include <MeChunk.h>
+#include <MeDict.h>
 
 #include "BulletConvert.h"
 
@@ -66,7 +67,6 @@ struct MdtWorldImpl
     btRigidBody fixedBody{0, nullptr, &emptyShape};
     std::vector<MdtBodyImpl*> bodies;
     std::vector<MdtConstraintID> constraints;
-    std::unordered_set<MdtConstraintID> enabled;
     std::vector<btPersistentManifold*> stepManifolds;
     // Contact friction rows, added to the Bullet world for one step like stepManifolds.
     std::vector<std::unique_ptr<btTypedConstraint>> stepConstraints;
@@ -75,7 +75,38 @@ struct MdtWorldImpl
     int matrixSizeLogSize = 0;
     // Collision models live in Mcd, so Mst unbinds a body's model through this.
     void (*bodyDestroyHook)(MdtBodyID) = nullptr;
+    // The partition MdtPackPartition prepared for the next MdtKeaAddConstraintForces.
+    std::vector<MdtBodyImpl*> packedBodies;
+    std::vector<MdtConstraintID> packedConstraints;
+    MeReal packedStep = 0;
 };
+
+// Lays a struct and the arrays after it out in one MeChunk block. A first pass with a null base only sizes
+// the block, a second one hands out the pointers.
+struct MdtChunkCarver
+{
+    char* base = nullptr;
+    size_t used = 0;
+
+    template <class T>
+    T* take(size_t count)
+    {
+        used = (used + alignof(std::max_align_t) - 1) / alignof(std::max_align_t) * alignof(std::max_align_t);
+        T* p = base ? reinterpret_cast<T*>(base + used) : nullptr;
+        used += count * sizeof(T);
+        return p;
+    }
+};
+
+// Runs layout once to size the block and once on the memory taken from chunk, returning what it lays out.
+template <class Layout>
+auto mdtCarve(MeChunk* chunk, Layout layout)
+{
+    MdtChunkCarver size;
+    layout(size);
+    MdtChunkCarver block{static_cast<char*>(MeChunkGetMem(chunk, (int)size.used))};
+    return block.base ? layout(block) : nullptr;
+}
 
 inline MdtWorldImpl* impl(MdtWorldID w) { return reinterpret_cast<MdtWorldImpl*>(w); }
 
@@ -97,6 +128,32 @@ btRigidBody* mdtRigidBody(MdtWorldImpl& w, MdtBodyID b);
 void mdtContactPrepare(MdtWorldImpl& w, MdtContactID c);
 // After the solve, writes the forces of the contacts prepared this step and of their groups.
 void mdtContactCollectForces(MdtWorldImpl& w, MeReal dt);
+
+// Releases the contact manifolds and rows prepared for the last solve.
+void mdtStepCleanup(MdtWorldImpl& w);
+void mdtPrepare(MdtWorldImpl& w, MdtConstraintID c);
+// Constraints Kea counts for c: one per joint or loose contact, one per contact of a group.
+int mdtKeaConstraintCount(MdtConstraintID c);
+// Solves the packed partition and leaves each body's constraint and applied forces as Kea accelerations.
+void mdtSolvePacked(MdtWorldImpl& w, MeReal h, MdtKeaForcePair* forces);
+
+// MeDict ordering for the world and body dictionaries, which are keyed by object address.
+int mdtComparePointers(const void* a, const void* b);
+void mdtDictAdd(MeDict& d, MeDictNode& n, void* object);
+template <class T>
+T mdtDictGet(MeDictNode* n)
+{
+    return n ? static_cast<T>(MeDictNodeGet(n)) : nullptr;
+}
+// Copies a dictionary's members into a vector, for walks whose callbacks may change it.
+template <class T>
+std::vector<T> mdtDictItems(MeDict& d)
+{
+    std::vector<T> out;
+    for (MeDictNode* n = MeDictFirst(&d); n; n = MeDictNext(&d, n))
+        out.push_back(static_cast<T>(MeDictNodeGet(n)));
+    return out;
+}
 
 void mdtBodyUpdateCom(MdtBody& b);
 // Copy an enabled body's state into its rigid body before a step, and back after it.
