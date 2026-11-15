@@ -22,6 +22,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Bullet CONFIG REQUIRED)
+# Upstream BulletConfig.cmake (Debian) gives the include dir relative to BULLET_ROOT_DIR, vcpkg makes it absolute.
+cmake_path(ABSOLUTE_PATH BULLET_INCLUDE_DIRS BASE_DIRECTORY "${BULLET_ROOT_DIR}")
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
