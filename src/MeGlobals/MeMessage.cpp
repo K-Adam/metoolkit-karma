@@ -34,6 +34,10 @@ void MEAPI MeShowStderr(const int, const char* const string)
 }
 
 #if defined(WIN32) && defined(_MSC_VER)
+#if !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+// Packaged apps have no message box, the debugger output is what is left.
+#define MessageBoxA(Window, Text, Caption, Type) OutputDebugStringA(Text)
+#endif
 void MEAPI MeShowDialog(const int, const char* const string)
 {
     MessageBoxA(nullptr, string, "MathEngine", MB_OK | MB_ICONINFORMATION);
